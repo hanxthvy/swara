@@ -229,6 +229,7 @@ pub struct App {
     mpris: Option<Mpris>,
     last_playing: bool,
     last_pos_push: Instant,
+    early_ends: u8,
 }
 
 impl App {
@@ -285,6 +286,7 @@ impl App {
             mpris,
             last_playing: false,
             last_pos_push: Instant::now(),
+            early_ends: 0,
         };
         app.logged = if app.api.logged_in() {
             app.api.session_label()
@@ -1673,7 +1675,22 @@ impl eframe::App for App {
         }
         self.progress = prog;
         if ended {
-            self.next_track(1);
+            eprintln!("[swara] selesai pos={:.1}s dur={:.1}s", self.progress.pos, self.progress.dur);
+            // Lagu yang "selesai" padahal baru berjalan sekejap berarti
+            // payload-nya rusak. Coba sekali lagi, lalu berhenti — jangan
+            // melompat beruntun sampai antrean habis.
+            if self.progress.dur > 0.0 && self.progress.pos < 1.5 {
+                self.early_ends += 1;
+                if self.early_ends >= 3 {
+                    self.player.pause();
+                    self.toast("audio gagal diputar, berhenti di sini");
+                } else if let Some(t) = self.current.clone() {
+                    self.play_track(t, None);
+                }
+            } else {
+                self.early_ends = 0;
+                self.next_track(1);
+            }
         }
 
         // Kendali dari panel sistem lewat MPRIS (islet, playerctl, waybar).

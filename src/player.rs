@@ -341,6 +341,10 @@ fn audio_thread(
     let mut error: Option<String> = None;
     let mut last_bytes: Vec<u8> = Vec::new();
     let mut last_dur = 0.0f64;
+    // Sink yang sudah kosong tetap "kosong" sampai Play berikutnya datang.
+    // Tanpa penanda ini `ended` dilaporkan tiap poll, dan pemanggil melompat
+    // lagu berulang-ulang selama jeda muat (gejala: skip beruntun).
+    let mut reported_end = false;
 
     loop {
         match rx.recv_timeout(Duration::from_millis(20)) {
@@ -348,6 +352,7 @@ fn audio_thread(
                 if let Some(c) = cur.take() {
                     c.sink.stop();
                 }
+                reported_end = false;
                 error = None;
                 last_dur = dur;
                 last_bytes = bytes;
@@ -387,6 +392,7 @@ fn audio_thread(
                 if let Some(c) = cur.take() {
                     c.sink.stop();
                 }
+                reported_end = false;
                 if !last_bytes.is_empty() {
                     match build(
                         &last_bytes,
@@ -419,17 +425,22 @@ fn audio_thread(
             Err(RecvTimeoutError::Disconnected) => return,
         }
 
-        let status = match cur.as_ref() {
+        let status = match cur.as_mut() {
             Some(c) => {
                 let rate = rate_slot.load(Ordering::Relaxed).max(1);
                 let pos = played.load(Ordering::Relaxed) as f64 / 2.0 / rate as f64;
                 let empty = c.playing && c.sink.empty();
+                let ended = empty && error.is_none() && !reported_end;
+                if ended {
+                    reported_end = true;
+                    c.playing = false;
+                }
                 Progress {
                     playing: c.playing && !empty,
                     pos: if c.dur > 0.0 { pos.min(c.dur) } else { pos },
                     dur: c.dur,
                     volume,
-                    ended: empty && error.is_none(),
+                    ended,
                     error: error.clone(),
                 }
             }
@@ -469,6 +480,9 @@ fn build(
     }
     played.store(frames * 2, Ordering::Relaxed);
     let _ = dur;
+    if src.pending.is_empty() && !src.fill() {
+        return Err("audio tidak bisa didekode".into());
+    }
     let sink = Sink::try_new(handle).map_err(|e| format!("sink: {e}"))?;
     sink.set_volume(volume);
     sink.append(src.fade_in(Duration::from_millis(160)));

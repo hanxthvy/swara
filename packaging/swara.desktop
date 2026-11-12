@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Swara
+GenericName=Pemutar Musik
+Comment=Pemutar musik native YouTube Music, tanpa browser
+Exec=swara %U
+Icon=swara
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+Keywords=musik;music;youtube;lagu;pemutar;
+StartupWMClass=swara
+StartupNotify=true
