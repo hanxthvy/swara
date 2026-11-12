@@ -75,9 +75,7 @@ fn main() -> anyhow::Result<()> {
     let api = Arc::new(Api::new());
     let mut player = Player::new()?;
     let remote = player.remote();
-    let mirror = player
-        .take_mirror()
-        .ok_or_else(|| anyhow::anyhow!("kanal konduktor"))?;
+    let (snap, ends) = player.watch();
     let worker = Worker::new(api.clone());
     let api2 = api.clone();
     let mpris = mpris::Mpris::spawn();
@@ -108,11 +106,7 @@ fn main() -> anyhow::Result<()> {
                     ctx.request_repaint();
                 });
             }
-            let cond = conductor::spawn(
-                api2.clone(),
-                remote.clone(),
-                mirror,
-            );
+            let cond = conductor::spawn(api2.clone(), remote.clone(), snap.clone(), ends.clone());
             Ok(Box::new(App::new(
                 cc,
                 api,

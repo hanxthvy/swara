@@ -66,8 +66,9 @@ impl Remote {
 pub struct Player {
     _stream: OutputStream,
     tx: Sender<Cmd>,
-    rx: Receiver<Progress>,
-    mirror: Option<Receiver<Progress>>,
+    snap: Arc<std::sync::Mutex<Progress>>,
+    ends: Arc<AtomicU64>,
+    seen_end: u64,
     cur: Progress,
     played: Arc<AtomicU64>,
     rate: Arc<AtomicU64>,
@@ -78,21 +79,26 @@ impl Player {
         let (stream, handle) =
             OutputStream::try_default().map_err(|e| anyhow!("output audio: {e}"))?;
         let (tx, cmd_rx) = channel::<Cmd>();
-        let (prog_tx, prog_rx) = channel::<Progress>();
-        // Salinan status untuk konduktor: ia yang menentukan lagu berikutnya,
-        // jadi ia perlu tahu kapan lagu habis tanpa menunggu UI digambar.
-        let (mirror_tx, mirror_rx) = channel::<Progress>();
+        // Status disimpan sebagai satu nilai terakhir, bukan kanal: kalau UI
+        // berhenti menggambar (jendela di workspace lain), kanal akan menumpuk
+        // dan konduktor membaca kejadian yang sudah basi.
+        let snap = Arc::new(std::sync::Mutex::new(Progress::default()));
+        let ends = Arc::new(AtomicU64::new(0));
         let played = Arc::new(AtomicU64::new(0));
         let rate = Arc::new(AtomicU64::new(48000));
         let (p2, r2) = (played.clone(), rate.clone());
+        let (snap2, ends2) = (snap.clone(), ends.clone());
         std::thread::Builder::new()
             .name("audio".into())
-            .spawn(move || audio_thread(handle, cmd_rx, prog_tx, mirror_tx, p2, r2))?;
+            .spawn(move || {
+                audio_thread(handle, cmd_rx, snap2.clone(), ends2.clone(), p2, r2)
+            })?;
         Ok(Player {
             _stream: stream,
             tx,
-            rx: prog_rx,
-            mirror: Some(mirror_rx),
+            snap,
+            ends,
+            seen_end: 0,
             cur: Progress {
                 volume: 0.8,
                 ..Default::default()
@@ -106,9 +112,9 @@ impl Player {
         Remote { tx: self.tx.clone() }
     }
 
-    /// Diambil sekali oleh konduktor.
-    pub fn take_mirror(&mut self) -> Option<Receiver<Progress>> {
-        self.mirror.take()
+    /// Konduktor memantau dua ini untuk tahu kapan lagu habis.
+    pub fn watch(&self) -> (Arc<std::sync::Mutex<Progress>>, Arc<AtomicU64>) {
+        (self.snap.clone(), self.ends.clone())
     }
 
     pub fn play(&mut self, bytes: Vec<u8>, start_at: f64, dur: f64) {
@@ -144,18 +150,14 @@ impl Player {
 
     /// Status terbaru. `ended` hanya true sekali per lagu.
     pub fn poll(&mut self) -> Progress {
-        let mut ended_once = false;
-        while let Ok(p) = self.rx.try_recv() {
-            if p.ended && !self.cur.ended {
-                ended_once = true;
-            }
-            self.cur = p;
+        let mut out = self.snap.lock().unwrap().clone();
+        let n = self.ends.load(Ordering::SeqCst);
+        out.ended = n != self.seen_end;
+        if out.ended {
+            self.seen_end = n;
         }
-        let mut out = self.cur.clone();
-        out.ended = ended_once;
-        if ended_once {
-            self.cur.ended = false;
-        }
+        self.cur = out.clone();
+        self.cur.ended = false;
         out
     }
 }
@@ -367,8 +369,8 @@ struct Cur {
 fn audio_thread(
     handle: OutputStreamHandle,
     rx: Receiver<Cmd>,
-    tx: Sender<Progress>,
-    mirror: Sender<Progress>,
+    snap: Arc<std::sync::Mutex<Progress>>,
+    ends: Arc<AtomicU64>,
     played: Arc<AtomicU64>,
     rate_slot: Arc<AtomicU64>,
 ) {
@@ -507,11 +509,10 @@ fn audio_thread(
                 error: error.clone(),
             },
         };
-        if tx.send(status.clone()).is_err() {
-            return;
+        if status.ended {
+            ends.fetch_add(1, Ordering::SeqCst);
         }
-        // Konduktor boleh tertinggal; jangan sampai pemutaran ikut berhenti.
-        let _ = mirror.send(status);
+        *snap.lock().unwrap() = status;
     }
 }
 

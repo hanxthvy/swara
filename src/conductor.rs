@@ -9,8 +9,9 @@
 
 use crate::api::{Api, Stream, Track};
 use crate::player::{Progress, Remote};
-use std::sync::mpsc::Receiver;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 #[derive(Default)]
 pub struct Cond {
@@ -36,17 +37,27 @@ impl Cond {
     }
 }
 
-pub fn spawn(api: Arc<Api>, remote: Remote, mirror: Receiver<Progress>) -> Arc<Mutex<Cond>> {
+pub fn spawn(
+    api: Arc<Api>,
+    remote: Remote,
+    snap: Arc<Mutex<Progress>>,
+    ends: Arc<AtomicU64>,
+) -> Arc<Mutex<Cond>> {
     let cond = Arc::new(Mutex::new(Cond::default()));
     let shared = cond.clone();
 
     let _ = std::thread::Builder::new()
         .name("konduktor".into())
         .spawn(move || {
-            while let Ok(p) = mirror.recv() {
-                if !p.ended {
+            let mut seen = ends.load(Ordering::SeqCst);
+            loop {
+                std::thread::sleep(Duration::from_millis(120));
+                let n = ends.load(Ordering::SeqCst);
+                if n == seen {
                     continue;
                 }
+                seen = n;
+                let p = snap.lock().unwrap().clone();
                 // Lagu yang "habis" padahal baru sekejap berarti payload-nya
                 // rusak: ulangi, dan setelah tiga kali diamkan saja.
                 if p.dur > 0.0 && p.pos < 1.5 {
