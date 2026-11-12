@@ -1,0 +1,159 @@
+//! Swara — pemutar musik native untuk YouTube Music.
+//!
+//! `swara`             buka aplikasi
+//! `swara --probe [q]` uji jalur InnerTube + unduh + decode tanpa membuka jendela
+
+mod api;
+mod player;
+mod ui;
+mod worker;
+
+use api::Api;
+use player::Player;
+use std::sync::Arc;
+use ui::App;
+use worker::Worker;
+
+fn main() -> anyhow::Result<()> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(|s| s.as_str()) == Some("--probe") {
+        let q = args
+            .get(1)
+            .cloned()
+            .unwrap_or_else(|| "tulus monokrom".into());
+        return probe(&q);
+    }
+    if args.iter().any(|a| a == "--version" || a == "-V") {
+        println!("swara {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+
+    let api = Arc::new(Api::new());
+    let player = Player::new()?;
+    let worker = Worker::new(api.clone());
+
+    let opts = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([1180.0, 780.0])
+            .with_min_inner_size([900.0, 600.0])
+            .with_title("Swara")
+            .with_app_id("swara"),
+        ..Default::default()
+    };
+
+    eframe::run_native(
+        "Swara",
+        opts,
+        Box::new(move |cc| Ok(Box::new(App::new(cc, api, player, worker)) as Box<dyn eframe::App>)),
+    )
+    .map_err(|e| anyhow::anyhow!("{e}"))
+}
+
+/// Jalur lengkap tanpa GUI: cari, ambil URL, unduh, lalu decode. Dipakai untuk
+/// memastikan backend benar-benar bekerja sebelum UI dipercaya.
+fn probe(q: &str) -> anyhow::Result<()> {
+    let api = Api::new();
+    let t0 = std::time::Instant::now();
+    let hasil = api.search(q, 5)?;
+    println!(
+        "search {:?} -> {} hasil ({} ms)",
+        q,
+        hasil.len(),
+        t0.elapsed().as_millis()
+    );
+    for t in &hasil {
+        println!("  {} | {} | {} | {}", t.id, t.title, t.artist, t.dur);
+    }
+    let first = hasil
+        .first()
+        .ok_or_else(|| anyhow::anyhow!("tidak ada hasil"))?
+        .clone();
+
+    let t1 = std::time::Instant::now();
+    let s = api.stream(&first.id)?;
+    println!(
+        "stream ok itag={} {} {} kbps dur={} ({} ms)",
+        s.itag,
+        s.mime,
+        s.kbps,
+        s.dur,
+        t1.elapsed().as_millis()
+    );
+
+    let t2 = std::time::Instant::now();
+    let bytes = api.fetch_audio(&s.url)?;
+    println!(
+        "audio {} KB dalam {} ms",
+        bytes.len() / 1024,
+        t2.elapsed().as_millis()
+    );
+
+    let t3 = std::time::Instant::now();
+    let (n, total) = probe_decode(&bytes)?;
+    println!(
+        "decode ok: {} sampel stereo, total {:.1} detik ({} ms)",
+        n / 2,
+        total,
+        t3.elapsed().as_millis()
+    );
+
+    let t4 = std::time::Instant::now();
+    let radio = api.radio(&first.id, 8)?;
+    println!("radio {} item ({} ms)", radio.len(), t4.elapsed().as_millis());
+
+    let t5 = std::time::Instant::now();
+    let l = api.lyrics(&first.title, &first.artist, s.dur);
+    println!(
+        "lirik: {} baris bertimestamp, {} karakter teks ({} ms)",
+        l.synced.len(),
+        l.text.chars().count(),
+        t5.elapsed().as_millis()
+    );
+
+    let t6 = std::time::Instant::now();
+    let home = api.home()?;
+    println!(
+        "beranda: {} baris, {} kartu ({} ms)",
+        home.len(),
+        home.iter().map(|r| r.items.len()).sum::<usize>(),
+        t6.elapsed().as_millis()
+    );
+    Ok(())
+}
+
+/// Decode penuh pakai jalur yang sama dengan pemutar (bukan `rodio::Decoder`,
+/// yang panik pada AAC polos googlevideo).
+fn probe_decode(bytes: &[u8]) -> anyhow::Result<(u64, f64)> {
+    let mss = symphonia::core::io::MediaSourceStream::new(
+        Box::new(std::io::Cursor::new(bytes.to_vec())),
+        Default::default(),
+    );
+    let mut hint = symphonia::core::probe::Hint::new();
+    hint.with_extension("m4a");
+    let probed = symphonia::default::get_probe().format(
+        &hint,
+        mss,
+        &symphonia::core::formats::FormatOptions::default(),
+        &symphonia::core::meta::MetadataOptions::default(),
+    )?;
+    let mut format = probed.format;
+    let track = format.default_track().ok_or_else(|| anyhow::anyhow!("tanpa track"))?;
+    let id = track.id;
+    let rate = track.codec_params.sample_rate.unwrap_or(44100) as f64;
+    let mut dec = symphonia::default::get_codecs()
+        .make(&track.codec_params, &symphonia::core::codecs::DecoderOptions::default())?;
+    let mut samples = 0u64;
+    loop {
+        let packet = match format.next_packet() {
+            Ok(p) => p,
+            Err(_) => break,
+        };
+        if packet.track_id() != id {
+            continue;
+        }
+        if let Ok(buf) = dec.decode(&packet) {
+            samples += (buf.frames() * 2) as u64;
+        }
+    }
+    Ok((samples, samples as f64 / 2.0 / rate))
+}
