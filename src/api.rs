@@ -695,13 +695,14 @@ impl Api {
 
     pub fn lyrics(&self, title: &str, artist: &str, secs: f64) -> Lyrics {
         let mut out = Lyrics::default();
-        if let Some(synced) = self.lrclib(title, artist, secs) {
+        if let Some((synced, plain)) = self.lrclib(title, artist, secs) {
             out.synced = synced;
+            out.text = plain;
         }
         out
     }
 
-    fn lrclib(&self, title: &str, artist: &str, duration: f64) -> Option<Vec<LyricLine>> {
+    fn lrclib(&self, title: &str, artist: &str, duration: f64) -> Option<(Vec<LyricLine>, String)> {
         if title.is_empty() {
             return None;
         }
@@ -717,11 +718,18 @@ impl Api {
         let arr = data.as_array()?;
         let mut best: Option<(f64, &Value)> = None;
         for c in arr {
-            let synced = match c.get("syncedLyrics").and_then(|s| s.as_str()) {
-                Some(s) if !s.is_empty() => s,
-                _ => continue,
-            };
-            let _ = synced;
+            let has_any = c
+                .get("syncedLyrics")
+                .and_then(|s| s.as_str())
+                .map(|s| !s.trim().is_empty())
+                .unwrap_or(false)
+                || c.get("plainLyrics")
+                    .and_then(|s| s.as_str())
+                    .map(|s| !s.trim().is_empty())
+                    .unwrap_or(false);
+            if !has_any {
+                continue;
+            }
             let d = c.get("duration").and_then(|d| d.as_f64()).unwrap_or(0.0);
             let mut dist = (d - duration).abs();
             if !artist.is_empty() {
@@ -744,10 +752,16 @@ impl Api {
             return None;
         }
         let lines = parse_lrc(cand.get("syncedLyrics").and_then(|s| s.as_str()).unwrap_or(""));
-        if lines.is_empty() {
+        let plain = cand
+            .get("plainLyrics")
+            .and_then(|s| s.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if lines.is_empty() && plain.is_empty() {
             None
         } else {
-            Some(lines)
+            Some((lines, plain))
         }
     }
 

@@ -341,6 +341,11 @@ fn audio_thread(
     let mut error: Option<String> = None;
     let mut last_bytes: Vec<u8> = Vec::new();
     let mut last_dur = 0.0f64;
+    // Posisi dihitung dari jam dinding, bukan dari jumlah sampel yang sudah
+    // ditarik sink. Hitungan sampel meleset kalau perangkat menegosiasikan laju
+    // lain (PipeWire/easyeffects), dan lirik jadi makin jauh tiap menit.
+    let mut base_pos = 0.0f64;
+    let mut started: Option<std::time::Instant> = None;
     // Sink yang sudah kosong tetap "kosong" sampai Play berikutnya datang.
     // Tanpa penanda ini `ended` dilaporkan tiap poll, dan pemanggil melompat
     // lagu berulang-ulang selama jeda muat (gejala: skip beruntun).
@@ -356,6 +361,8 @@ fn audio_thread(
                 error = None;
                 last_dur = dur;
                 last_bytes = bytes;
+                base_pos = start.max(0.0);
+                started = Some(std::time::Instant::now());
                 match build(&last_bytes, start, &handle, volume, dur, &played, &rate_slot) {
                     Ok(sink) => {
                         cur = Some(Cur {
@@ -368,6 +375,9 @@ fn audio_thread(
                 }
             }
             Ok(Cmd::Pause) => {
+                if let Some(t) = started.take() {
+                    base_pos += t.elapsed().as_secs_f64();
+                }
                 if let Some(c) = cur.as_mut() {
                     c.sink.pause();
                     c.playing = false;
@@ -377,6 +387,7 @@ fn audio_thread(
                 if let Some(c) = cur.as_mut() {
                     c.sink.play();
                     c.playing = true;
+                    started = Some(std::time::Instant::now());
                 }
             }
             Ok(Cmd::Stop) => {
@@ -384,6 +395,7 @@ fn audio_thread(
                     c.sink.stop();
                 }
                 cur = None;
+                started = None;
             }
             Ok(Cmd::Seek(pos)) => {
                 // Seek di tingkat sampel: buang audio lama, buka ulang, lalu
@@ -393,6 +405,8 @@ fn audio_thread(
                     c.sink.stop();
                 }
                 reported_end = false;
+                base_pos = pos.max(0.0);
+                started = Some(std::time::Instant::now());
                 if !last_bytes.is_empty() {
                     match build(
                         &last_bytes,
@@ -427,8 +441,12 @@ fn audio_thread(
 
         let status = match cur.as_mut() {
             Some(c) => {
-                let rate = rate_slot.load(Ordering::Relaxed).max(1);
-                let pos = played.load(Ordering::Relaxed) as f64 / 2.0 / rate as f64;
+                let _rate = rate_slot.load(Ordering::Relaxed).max(1);
+                let pos = base_pos
+                    + started
+                        .map(|t| t.elapsed().as_secs_f64())
+                        .unwrap_or(0.0);
+                let pos = pos.max(0.0);
                 let empty = c.playing && c.sink.empty();
                 let ended = empty && error.is_none() && !reported_end;
                 if ended {

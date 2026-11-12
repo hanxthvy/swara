@@ -63,6 +63,8 @@ enum Icon {
     Lyrics,
     Volume,
     Theme,
+    ChevronDown,
+    ChevronUp,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -166,6 +168,20 @@ fn draw_icon(p: &egui::Painter, icon: Icon, r: Rect, c: Color32) {
                 Stroke::new(s * 0.07, c),
             );
         }
+        Icon::ChevronDown => {
+            let p1 = pos2(m.x - s * 0.22, m.y - s * 0.08);
+            let p2 = pos2(m.x, m.y + s * 0.16);
+            let p3 = pos2(m.x + s * 0.22, m.y - s * 0.08);
+            p.line_segment([p1, p2], Stroke::new(s * 0.11, c));
+            p.line_segment([p2, p3], Stroke::new(s * 0.11, c));
+        }
+        Icon::ChevronUp => {
+            let p1 = pos2(m.x - s * 0.22, m.y + s * 0.08);
+            let p2 = pos2(m.x, m.y - s * 0.16);
+            let p3 = pos2(m.x + s * 0.22, m.y + s * 0.08);
+            p.line_segment([p1, p2], Stroke::new(s * 0.11, c));
+            p.line_segment([p2, p3], Stroke::new(s * 0.11, c));
+        }
         Icon::Theme => {
             p.circle_filled(m, s * 0.26, c);
             for k in 0..8 {
@@ -230,6 +246,8 @@ pub struct App {
     last_playing: bool,
     last_pos_push: Instant,
     early_ends: u8,
+    expanded: bool,
+    debug_seek: Option<f64>,
 }
 
 impl App {
@@ -287,6 +305,10 @@ impl App {
             last_playing: false,
             last_pos_push: Instant::now(),
             early_ends: 0,
+            expanded: std::env::var("SWARA_EXPAND").is_ok(),
+    debug_seek: std::env::var("SWARA_SEEK")
+        .ok()
+        .and_then(|v| v.parse::<f64>().ok()),
         };
         app.logged = if app.api.logged_in() {
             app.api.session_label()
@@ -420,6 +442,10 @@ impl App {
         self.lyrics_id = track.id.clone();
         self.loading = true;
         self.seed = None;
+        self.drag_pos = None;
+        // Audio lama harus berhenti sekarang, kalau tidak bar durasi masih
+        // memutar posisi lagu sebelumnya selama lagu baru dimuat.
+        self.player.stop();
         self.progress = Progress {
             volume: self.progress.volume,
             ..Default::default()
@@ -840,6 +866,10 @@ impl App {
 
 impl App {
     fn ui(&mut self, ctx: &egui::Context) {
+        if self.expanded {
+            self.now_playing(ctx);
+            return;
+        }
         let s = self.scheme;
         let screen = ctx.screen_rect();
         let w = screen.width();
@@ -936,7 +966,14 @@ impl App {
                         .inner_margin(egui::Margin::symmetric(14.0, 10.0))
                         .outer_margin(egui::Margin::symmetric(10.0, 10.0)),
                 )
-                .show(ctx, |ui| self.mini_player(ui));
+                .show(ctx, |ui| {
+                    let full = ui.max_rect();
+                    let hit = ui.interact(full, egui::Id::new("mini-expand"), Sense::click());
+                    self.mini_player(ui);
+                    if hit.clicked() && self.current.is_some() {
+                        self.expanded = true;
+                    }
+                });
         }
 
         egui::CentralPanel::default()
@@ -1133,35 +1170,36 @@ impl App {
         });
 
         ui.add_space(14.0);
-        ui.horizontal(|ui| {
-            let total = 46.0 * 2.0 + 64.0 + 20.0 * 2.0;
-            let pad = ((w - total) / 2.0).max(0.0);
-            ui.add_space(pad);
-            if self.icon_button(ui, Icon::Prev, 46.0, Btn::Tonal).clicked() {
-                self.next_track(-1);
-            }
-            ui.add_space(10.0);
-            let icon = if self.progress.playing {
-                Icon::Pause
-            } else {
-                Icon::Play
-            };
-            if self.icon_button(ui, icon, 64.0, Btn::Filled).clicked() {
-                self.toggle_play();
-            }
-            ui.add_space(10.0);
-            if self.icon_button(ui, Icon::Next, 46.0, Btn::Tonal).clicked() {
-                self.next_track(1);
-            }
+        let icon = if self.progress.playing {
+            Icon::Pause
+        } else {
+            Icon::Play
+        };
+        let mut act = 0i8;
+        ui.columns(3, |cols| {
+            cols[0].vertical_centered(|ui| {
+                if self.icon_button(ui, Icon::Prev, 46.0, Btn::Tonal).clicked() {
+                    act = -1;
+                }
+            });
+            cols[1].vertical_centered(|ui| {
+                if self.icon_button(ui, icon, 64.0, Btn::Filled).clicked() {
+                    act = 2;
+                }
+            });
+            cols[2].vertical_centered(|ui| {
+                if self.icon_button(ui, Icon::Next, 46.0, Btn::Tonal).clicked() {
+                    act = 1;
+                }
+            });
         });
+        match act {
+            -1 => self.next_track(-1),
+            1 => self.next_track(1),
+            2 => self.toggle_play(),
+            _ => {}
+        }
 
-        ui.add_space(14.0);
-        ui.horizontal(|ui| {
-            let (ir, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
-            draw_icon(ui.painter(), Icon::Volume, ir, s.on_surface_variant);
-            ui.add_space(6.0);
-            self.volume(ui, ui.available_width());
-        });
 
         ui.add_space(14.0);
         ui.horizontal(|ui| {
@@ -1243,9 +1281,8 @@ impl App {
                 if self.icon_button(ui, Icon::Next, 34.0, Btn::Ghost).clicked() {
                     self.next_track(1);
                 }
-                if !narrow {
-                    ui.add_space(6.0);
-                    self.volume(ui, 68.0);
+                if self.icon_button(ui, Icon::ChevronUp, 30.0, Btn::Ghost).clicked() {
+                    self.expanded = true;
                 }
             });
         });
@@ -1260,6 +1297,112 @@ impl App {
                 ui.label(ts::label(fmt_time(dur), s.on_surface_variant).size(10.5));
             });
         }
+    }
+
+    // ---- pemutar penuh (klik bar bawah untuk membuka)
+
+    fn now_playing(&mut self, ctx: &egui::Context) {
+        let s = self.scheme;
+        let track = self.current.clone();
+        let dur = self
+            .current_info
+            .as_ref()
+            .map(|i| i.dur)
+            .filter(|d| *d > 0.0)
+            .or_else(|| track.as_ref().map(|t| t.secs))
+            .unwrap_or(0.0);
+        let cover = self.cover_of();
+
+        egui::CentralPanel::default()
+            .frame(
+                egui::Frame::none()
+                    .fill(s.surface)
+                    .inner_margin(egui::Margin::symmetric(24.0, 14.0)),
+            )
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    if self.icon_button(ui, Icon::ChevronDown, 38.0, Btn::Ghost).clicked() {
+                        self.expanded = false;
+                    }
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.label(ts::label("SEDANG DIPUTAR", s.on_surface_variant));
+                    });
+                });
+
+                let w = ui.available_width();
+                let h = ui.available_height();
+                let side = (w * 0.34).min(h * 0.52).clamp(110.0, 340.0);
+                ui.add_space(6.0);
+                let (rect, _) = ui.allocate_exact_size(vec2(w, side), Sense::hover());
+                let art = Rect::from_center_size(rect.center(), vec2(side, side));
+                ui.painter()
+                    .rect_filled(art, Rounding::same(30.0), s.surface_high);
+                if let Some(t) = cover {
+                    egui::Image::new((t.id(), t.size_vec2()))
+                        .fit_to_exact_size(vec2(side, side))
+                        .rounding(Rounding::same(30.0))
+                        .paint_at(ui, art);
+                }
+
+                ui.add_space(12.0);
+                let (title, artist) = match &track {
+                    Some(t) => (t.title.clone(), t.artist.clone()),
+                    None => ("Belum ada lagu".into(), "Pilih dari beranda".into()),
+                };
+                ui.vertical_centered(|ui| {
+                    ui.label(ts::headline(short(&title, 46), s.on_surface));
+                    ui.label(ts::body(short(&artist, 52), s.on_surface_variant));
+                });
+
+                ui.add_space(10.0);
+                if let Some(v) = self.seek_bar(ui, dur, w) {
+                    self.player.seek(v);
+                }
+                ui.horizontal(|ui| {
+                    ui.label(ts::label(fmt_time(self.progress.pos), s.on_surface_variant));
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.label(ts::label(fmt_time(dur), s.on_surface_variant));
+                    });
+                });
+
+                ui.add_space(8.0);
+                let icon = if self.progress.playing {
+                    Icon::Pause
+                } else {
+                    Icon::Play
+                };
+                let mut act = 0i8;
+                ui.columns(3, |cols| {
+                    cols[0].vertical_centered(|ui| {
+                        if self.icon_button(ui, Icon::Prev, 52.0, Btn::Tonal).clicked() {
+                            act = -1;
+                        }
+                    });
+                    cols[1].vertical_centered(|ui| {
+                        if self.icon_button(ui, icon, 72.0, Btn::Filled).clicked() {
+                            act = 2;
+                        }
+                    });
+                    cols[2].vertical_centered(|ui| {
+                        if self.icon_button(ui, Icon::Next, 52.0, Btn::Tonal).clicked() {
+                            act = 1;
+                        }
+                    });
+                });
+                match act {
+                    -1 => self.next_track(-1),
+                    1 => self.next_track(1),
+                    2 => self.toggle_play(),
+                    _ => {}
+                }
+
+
+                ui.add_space(12.0);
+                let rest = ui.available_height();
+                if rest > 54.0 {
+                    self.lyrics_view(ui, rest - 6.0);
+                }
+            });
     }
 
     fn lyrics_view(&mut self, ui: &mut Ui, max_h: f32) {
@@ -1665,6 +1808,13 @@ impl eframe::App for App {
             }
         }
 
+        // Sampul lagu aktif harus tetap diminta walau mode daftar tidak tampak.
+        if let Some(t) = self.current.clone() {
+            if !t.thumb.is_empty() {
+                self.ensure_thumb(ctx, &t.thumb);
+            }
+        }
+
         let prog = self.player.poll();
         let ended = prog.ended;
         if let Some(e) = prog.error.clone() {
@@ -1673,7 +1823,16 @@ impl eframe::App for App {
                 self.toast(format!("gagal memutar: {e}"));
             }
         }
-        self.progress = prog;
+        // Selama lagu baru dimuat, jangan biarkan posisi/durasi lagu lama
+        // menempel di bar durasi.
+        self.progress = if self.loading && !prog.playing {
+            Progress {
+                volume: prog.volume,
+                ..Default::default()
+            }
+        } else {
+            prog
+        };
         if ended {
             eprintln!("[swara] selesai pos={:.1}s dur={:.1}s", self.progress.pos, self.progress.dur);
             // Lagu yang "selesai" padahal baru berjalan sekejap berarti
@@ -1690,6 +1849,16 @@ impl eframe::App for App {
             } else {
                 self.early_ends = 0;
                 self.next_track(1);
+            }
+        }
+
+        // Uji manual: SWARA_SEEK=120 melompat sekali setelah pemutaran jalan.
+        if let Some(v) = self.debug_seek.take() {
+            if !self.loading && self.progress.dur > 0.0 && self.progress.pos > 2.0 {
+                self.player.seek(v);
+                self.progress.pos = v;
+            } else {
+                self.debug_seek = Some(v);
             }
         }
 
@@ -1738,6 +1907,16 @@ impl eframe::App for App {
         if self.loading || self.progress.playing || self.toast.is_some() {
             ctx.request_repaint_after(Duration::from_millis(80));
         }
+
+        // F / Esc berlaku walau kotak cari sedang fokus.
+        ctx.input(|i| {
+            if i.key_pressed(egui::Key::F) {
+                self.expanded = !self.expanded;
+            }
+            if i.key_pressed(egui::Key::Escape) {
+                self.expanded = false;
+            }
+        });
 
         // Pintasan papan ketik, diabaikan saat kotak cari sedang fokus.
         let typing = ctx.memory(|m| m.focused().is_some());

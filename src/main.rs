@@ -43,6 +43,26 @@ fn main() -> anyhow::Result<()> {
         }
         return Ok(());
     }
+    if let Some(i) = args.iter().position(|a| a == "--lirik") {
+        let q = args[i + 1..].join(" ");
+        let (artist, title) = match q.split_once(" - ") {
+            Some((a, t)) => (a.to_string(), t.to_string()),
+            None => (String::new(), q.clone()),
+        };
+        let api = Api::new();
+        let l = api.lyrics(&title, &artist, 0.0);
+        println!(
+            "sinkron: {} baris, teks: {} baris",
+            l.synced.len(),
+            l.text.lines().count()
+        );
+        if let Some(f) = l.synced.first() {
+            println!("contoh: {:.1}s {}", f.t, f.text);
+        } else if let Some(f) = l.text.lines().next() {
+            println!("contoh: {f}");
+        }
+        return Ok(());
+    }
     if args.iter().any(|a| a == "--version" || a == "-V") {
         println!("swara {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
