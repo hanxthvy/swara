@@ -4,6 +4,9 @@
 //! `swara --probe [q]` uji jalur InnerTube + unduh + decode tanpa membuka jendela
 
 mod api;
+mod auth;
+mod mpris;
+mod theme;
 mod player;
 mod ui;
 mod worker;
@@ -23,14 +26,36 @@ fn main() -> anyhow::Result<()> {
             .unwrap_or_else(|| "tulus monokrom".into());
         return probe(&q);
     }
+    if args.iter().any(|a| a == "--login") {
+        let api = Api::new();
+        match api.login() {
+            Ok(l) => {
+                println!("masuk sebagai {l}");
+                match api.library() {
+                    Ok(v) => println!("koleksi: {} kartu", v.len()),
+                    Err(e) => println!("koleksi gagal: {e:#}"),
+                }
+            }
+            Err(e) => {
+                println!("gagal masuk: {e:#}");
+                std::process::exit(1);
+            }
+        }
+        return Ok(());
+    }
     if args.iter().any(|a| a == "--version" || a == "-V") {
         println!("swara {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
 
+    // Argumen bebas selain flag diperlakukan sebagai kueri: `swara "tulus"`.
+    let autoplay = args.iter().find(|a| !a.starts_with('-')).cloned();
+
     let api = Arc::new(Api::new());
     let player = Player::new()?;
     let worker = Worker::new(api.clone());
+    let mpris = mpris::Mpris::spawn();
+    eprintln!("[swara] mulai, mpris={}", mpris.is_some());
 
     let opts = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -44,7 +69,16 @@ fn main() -> anyhow::Result<()> {
     eframe::run_native(
         "Swara",
         opts,
-        Box::new(move |cc| Ok(Box::new(App::new(cc, api, player, worker)) as Box<dyn eframe::App>)),
+        Box::new(move |cc| {
+            Ok(Box::new(App::new(
+                cc,
+                api,
+                player,
+                worker,
+                autoplay.clone(),
+                mpris,
+            )) as Box<dyn eframe::App>)
+        }),
     )
     .map_err(|e| anyhow::anyhow!("{e}"))
 }

@@ -4,6 +4,7 @@
 //! Stream lewat klien VISIONOS (client id 101) yang masih memberi URL langsung
 //! tanpa signatureCipher dan tanpa transformasi `n`.
 
+use crate::auth::{self, Session};
 use anyhow::{anyhow, Result};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -88,6 +89,7 @@ struct Creds {
 pub struct Api {
     client: reqwest::blocking::Client,
     creds: Mutex<Option<Creds>>,
+    session: Mutex<Option<Session>>,
 }
 
 fn cache_dir() -> PathBuf {
@@ -201,6 +203,7 @@ impl Api {
         Api {
             client,
             creds: Mutex::new(cached),
+            session: Mutex::new(auth::load()),
         }
     }
 
@@ -247,7 +250,7 @@ impl Api {
     fn itube(&self, ep: &str, body: Value) -> Result<Value> {
         let c = self.creds()?;
         let url = format!("{API}{ep}?key={}&prettyPrint=false", c.key);
-        let resp = self
+        let mut req = self
             .client
             .post(&url)
             .header("Content-Type", "application/json")
@@ -255,9 +258,13 @@ impl Api {
             .header("X-Youtube-Client-Version", &c.ver)
             .header("X-Goog-Visitor-Id", &c.vd)
             .header("Origin", "https://music.youtube.com")
-            .header("Referer", "https://music.youtube.com/")
-            .json(&body)
-            .send()?;
+            .header("Referer", "https://music.youtube.com/");
+        if let Some(s) = self.session.lock().unwrap().as_ref() {
+            for (k, v) in auth::auth_headers(s) {
+                req = req.header(k, v);
+            }
+        }
+        let resp = req.json(&body).send()?;
         if !resp.status().is_success() {
             return Err(anyhow!("{} -> {}", ep, resp.status()));
         }
@@ -771,6 +778,141 @@ impl Api {
         }
         let resp = self.client.get(url).send()?;
         Ok(resp.bytes()?.to_vec())
+    }
+}
+
+
+impl Api {
+    pub fn logged_in(&self) -> bool {
+        self.session
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|s| !s.cookies.is_empty())
+            .unwrap_or(false)
+    }
+
+    pub fn session_label(&self) -> Option<String> {
+        self.session.lock().unwrap().as_ref().map(|s| {
+            if s.label.is_empty() {
+                "Sesi Chromium".to_string()
+            } else {
+                s.label.clone()
+            }
+        })
+    }
+
+    /// Impor cookie dari profil Chromium, lalu pastikan sesinya benar-benar hidup.
+    pub fn login(&self) -> Result<String> {
+        let mut s = auth::import_any()?;
+        let label = self
+            .account_label(&s)
+            .unwrap_or_else(|| "Akun YouTube".to_string());
+        s.label = label.clone();
+        auth::save(&s)?;
+        *self.session.lock().unwrap() = Some(s);
+        Ok(label)
+    }
+
+    pub fn logout(&self) {
+        auth::clear();
+        *self.session.lock().unwrap() = None;
+    }
+
+    fn account_label(&self, s: &Session) -> Option<String> {
+        let c = self.creds().ok()?;
+        let mut req = self
+            .client
+            .post(format!(
+                "{API}account/account_menu?key={}&prettyPrint=false",
+                c.key
+            ))
+            .header("Content-Type", "application/json")
+            .header("X-Youtube-Client-Name", "67")
+            .header("X-Youtube-Client-Version", &c.ver)
+            .header("X-Goog-Visitor-Id", &c.vd)
+            .header("Origin", "https://music.youtube.com")
+            .header("Referer", "https://music.youtube.com/");
+        for (k, v) in auth::auth_headers(s) {
+            req = req.header(k, v);
+        }
+        let resp: Value = req
+            .json(&json!({"context": Self::ctx_remix(&c)}))
+            .send()
+            .ok()?
+            .json()
+            .ok()?;
+        // Aktifkan akun: nama tampilan ada di activeAccountHeaderRenderer.
+        fn find_name(v: &Value) -> Option<String> {
+            if let Value::Object(m) = v {
+                if let Some(acc) = m.get("accountName") {
+                    let t = runs_text(acc);
+                    if !t.is_empty() {
+                        return Some(t);
+                    }
+                }
+                for x in m.values() {
+                    if let Some(n) = find_name(x) {
+                        return Some(n);
+                    }
+                }
+            } else if let Value::Array(a) = v {
+                for x in a {
+                    if let Some(n) = find_name(x) {
+                        return Some(n);
+                    }
+                }
+            }
+            None
+        }
+        find_name(&resp)
+    }
+
+    /// Playlist milik akun (butuh sesi).
+    pub fn library(&self) -> Result<Vec<Card>> {
+        let c = self.creds()?;
+        let resp = self.itube(
+            "browse",
+            json!({"context": Self::ctx_remix(&c), "browseId": "FEmusic_liked_playlists"}),
+        )?;
+        let mut out: Vec<Card> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for node in items(&resp, "musicTwoRowItemRenderer") {
+            if let Some(card) = Self::card(&json!({"musicTwoRowItemRenderer": node})) {
+                if !card.id.is_empty() && seen.insert(card.id.clone()) {
+                    out.push(card);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Suka / batal suka sebuah lagu.
+    pub fn rate(&self, video_id: &str, like: bool) -> Result<()> {
+        let c = self.creds()?;
+        let s = self.session.lock().unwrap().clone();
+        let s = s.ok_or_else(|| anyhow!("belum masuk"))?;
+        let url = format!("{API}like/like?key={}&prettyPrint=false", c.key);
+        let mut req = self
+            .client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .header("X-Youtube-Client-Name", "67")
+            .header("X-Youtube-Client-Version", &c.ver)
+            .header("Origin", "https://music.youtube.com");
+        for (k, v) in auth::auth_headers(&s) {
+            req = req.header(k, v);
+        }
+        let body = json!({
+            "context": Self::ctx_remix(&c),
+            "target": {"videoId": video_id},
+            "rating": if like { "like" } else { "none" },
+        });
+        let resp = req.json(&body).send()?;
+        if !resp.status().is_success() {
+            return Err(anyhow!("like http {}", resp.status()));
+        }
+        Ok(())
     }
 }
 

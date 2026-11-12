@@ -30,6 +30,13 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png"]
 anyhow = "1"
 regex = "1"
 sha1 = "0.10"
+mpris-server = "0.11"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+aes = "0.8.4"
+cbc = "0.1.2"
+pbkdf2 = "0.12.2"
+hmac = "0.12.1"
+tokio = { version = "1.53.3", features = ["macros", "rt", "time"] }
 
 [profile.release]
 opt-level = 2
