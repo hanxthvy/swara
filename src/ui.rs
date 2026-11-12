@@ -1848,7 +1848,6 @@ impl eframe::App for App {
         }
 
         let prog = self.player.poll();
-        let ended = prog.ended;
         if let Some(e) = prog.error.clone() {
             if self.last_error.as_deref() != Some(e.as_str()) {
                 self.last_error = Some(e.clone());
@@ -1865,14 +1864,8 @@ impl eframe::App for App {
         } else {
             prog
         };
-        if ended {
-            eprintln!(
-                "[swara] selesai pos={:.1}s dur={:.1}s",
-                self.progress.pos, self.progress.dur
-            );
-            // Lagu berikutnya dipilih konduktor, bukan di sini: kalau jendela
-            // tersembunyi, `update` tidak dipanggil sama sekali.
-        }
+        // Lagu berikutnya dipilih konduktor, bukan di sini: kalau jendela
+        // tersembunyi, `update` tidak dipanggil sama sekali.
 
         // Konduktor memutar lagu baru tanpa lewat UI; ambil alih tampilannya.
         let adopted = {
