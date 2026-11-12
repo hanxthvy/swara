@@ -4,6 +4,7 @@
 //! `swara --probe [q]` uji jalur InnerTube + unduh + decode tanpa membuka jendela
 
 mod api;
+mod conductor;
 mod auth;
 mod mpris;
 mod theme;
@@ -72,8 +73,13 @@ fn main() -> anyhow::Result<()> {
     let autoplay = args.iter().find(|a| !a.starts_with('-')).cloned();
 
     let api = Arc::new(Api::new());
-    let player = Player::new()?;
+    let mut player = Player::new()?;
+    let remote = player.remote();
+    let mirror = player
+        .take_mirror()
+        .ok_or_else(|| anyhow::anyhow!("kanal konduktor"))?;
     let worker = Worker::new(api.clone());
+    let api2 = api.clone();
     let mpris = mpris::Mpris::spawn();
     eprintln!("[swara] mulai, mpris={}", mpris.is_some());
 
@@ -90,6 +96,23 @@ fn main() -> anyhow::Result<()> {
         "Swara",
         opts,
         Box::new(move |cc| {
+            // Detak dari luar jendela. Kalau jendela disembunyikan (pindah
+            // workspace), compositor berhenti mengirim frame callback sehingga
+            // egui tidak pernah `update()` — lagu habis tapi antrean tidak
+            // lanjut. `Context::request_repaint` dari thread lain membangunkan
+            // event loop tanpa menunggu compositor.
+            {
+                let ctx = cc.egui_ctx.clone();
+                std::thread::spawn(move || loop {
+                    std::thread::sleep(std::time::Duration::from_millis(400));
+                    ctx.request_repaint();
+                });
+            }
+            let cond = conductor::spawn(
+                api2.clone(),
+                remote.clone(),
+                mirror,
+            );
             Ok(Box::new(App::new(
                 cc,
                 api,
@@ -97,6 +120,7 @@ fn main() -> anyhow::Result<()> {
                 worker,
                 autoplay.clone(),
                 mpris,
+                cond,
             )) as Box<dyn eframe::App>)
         }),
     )

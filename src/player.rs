@@ -42,10 +42,32 @@ pub struct Progress {
     pub error: Option<String>,
 }
 
+/// Pegangan untuk mengendalikan pemutar dari thread lain (konduktor).
+#[derive(Clone)]
+pub struct Remote {
+    tx: Sender<Cmd>,
+}
+
+impl Remote {
+    pub fn play(&self, bytes: Vec<u8>, start: f64, dur: f64) {
+        let _ = self.tx.send(Cmd::Play(bytes, start, dur));
+    }
+    pub fn pause(&self) {
+        let _ = self.tx.send(Cmd::Pause);
+    }
+    pub fn resume(&self) {
+        let _ = self.tx.send(Cmd::Resume);
+    }
+    pub fn stop(&self) {
+        let _ = self.tx.send(Cmd::Stop);
+    }
+}
+
 pub struct Player {
     _stream: OutputStream,
     tx: Sender<Cmd>,
     rx: Receiver<Progress>,
+    mirror: Option<Receiver<Progress>>,
     cur: Progress,
     played: Arc<AtomicU64>,
     rate: Arc<AtomicU64>,
@@ -57,16 +79,20 @@ impl Player {
             OutputStream::try_default().map_err(|e| anyhow!("output audio: {e}"))?;
         let (tx, cmd_rx) = channel::<Cmd>();
         let (prog_tx, prog_rx) = channel::<Progress>();
+        // Salinan status untuk konduktor: ia yang menentukan lagu berikutnya,
+        // jadi ia perlu tahu kapan lagu habis tanpa menunggu UI digambar.
+        let (mirror_tx, mirror_rx) = channel::<Progress>();
         let played = Arc::new(AtomicU64::new(0));
         let rate = Arc::new(AtomicU64::new(48000));
         let (p2, r2) = (played.clone(), rate.clone());
         std::thread::Builder::new()
             .name("audio".into())
-            .spawn(move || audio_thread(handle, cmd_rx, prog_tx, p2, r2))?;
+            .spawn(move || audio_thread(handle, cmd_rx, prog_tx, mirror_tx, p2, r2))?;
         Ok(Player {
             _stream: stream,
             tx,
             rx: prog_rx,
+            mirror: Some(mirror_rx),
             cur: Progress {
                 volume: 0.8,
                 ..Default::default()
@@ -74,6 +100,15 @@ impl Player {
             played,
             rate,
         })
+    }
+
+    pub fn remote(&self) -> Remote {
+        Remote { tx: self.tx.clone() }
+    }
+
+    /// Diambil sekali oleh konduktor.
+    pub fn take_mirror(&mut self) -> Option<Receiver<Progress>> {
+        self.mirror.take()
     }
 
     pub fn play(&mut self, bytes: Vec<u8>, start_at: f64, dur: f64) {
@@ -333,6 +368,7 @@ fn audio_thread(
     handle: OutputStreamHandle,
     rx: Receiver<Cmd>,
     tx: Sender<Progress>,
+    mirror: Sender<Progress>,
     played: Arc<AtomicU64>,
     rate_slot: Arc<AtomicU64>,
 ) {
@@ -471,9 +507,11 @@ fn audio_thread(
                 error: error.clone(),
             },
         };
-        if tx.send(status).is_err() {
+        if tx.send(status.clone()).is_err() {
             return;
         }
+        // Konduktor boleh tertinggal; jangan sampai pemutaran ikut berhenti.
+        let _ = mirror.send(status);
     }
 }
 

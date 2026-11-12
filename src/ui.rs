@@ -16,7 +16,7 @@ use egui::{
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 type ThumbOut = (String, Option<(Vec<u8>, TextureHandle)>);
@@ -245,9 +245,10 @@ pub struct App {
     mpris: Option<Mpris>,
     last_playing: bool,
     last_pos_push: Instant,
-    early_ends: u8,
     expanded: bool,
     debug_seek: Option<f64>,
+    cond: Arc<Mutex<crate::conductor::Cond>>,
+    cond_seq: u64,
 }
 
 impl App {
@@ -258,6 +259,7 @@ impl App {
         worker: Worker,
         autoplay: Option<String>,
         mpris: Option<Mpris>,
+        cond: Arc<Mutex<crate::conductor::Cond>>,
     ) -> Self {
         install_fonts(&cc.egui_ctx);
         worker.attach(cc.egui_ctx.clone());
@@ -265,6 +267,7 @@ impl App {
         let mut app = App {
             api,
             player,
+            cond,
             worker,
             tab: Tab::Home,
             view: View::Feed,
@@ -304,8 +307,8 @@ impl App {
             mpris,
             last_playing: false,
             last_pos_push: Instant::now(),
-            early_ends: 0,
             expanded: std::env::var("SWARA_EXPAND").is_ok(),
+            cond_seq: 0,
     debug_seek: std::env::var("SWARA_SEEK")
         .ok()
         .and_then(|v| v.parse::<f64>().ok()),
@@ -388,6 +391,8 @@ impl App {
                             self.queue.push(item);
                         }
                     }
+                    let cur_id = self.current.as_ref().map(|c| c.id.clone()).unwrap_or_default();
+                    self.cond.lock().unwrap().set_queue(&self.queue, &cur_id);
                 }
             }
             Out::Lyrics(id, l) => {
@@ -431,6 +436,32 @@ impl App {
         }
     }
 
+    /// Ambil alih lagu yang dipilih konduktor. Ini terjadi kalau lagu berganti
+    /// saat jendela tersembunyi — `update` baru jalan lagi ketika jendela
+    /// tampil, lalu menyusul keadaan yang sudah berjalan.
+    fn adopt(&mut self, t: Track, s: Option<crate::api::Stream>) {
+        self.current = Some(t.clone());
+        self.loading = false;
+        self.seed = None;
+        self.drag_pos = None;
+        self.lyrics = None;
+        self.lyrics_id = t.id.clone();
+        if let Some(info) = s {
+            let dur = if info.dur > 0.0 { info.dur } else { t.secs };
+            self.progress.dur = dur;
+            self.current_info = Some(info.clone());
+            if let Some(m) = &self.mpris {
+                m.track(&t, dur, &info.thumb);
+                m.status(true);
+                m.position(0.0);
+            }
+        }
+        if !self.queue.iter().any(|x| x.id == t.id) {
+            self.queue.push(t.clone());
+        }
+        self.worker.send(Job::Lyrics(t));
+    }
+
     fn play_track(&mut self, track: Track, queue: Option<Vec<Track>>) {
         eprintln!("[swara] play {}", track.id);
         if let Some(q) = queue {
@@ -454,6 +485,7 @@ impl App {
         if !self.queue.iter().any(|t| t.id == track.id) {
             self.queue.insert(0, track.clone());
         }
+        self.cond.lock().unwrap().set_queue(&self.queue, &track.id);
         self.worker.send(Job::Radio(track.id.clone()));
     }
 
@@ -1834,22 +1866,29 @@ impl eframe::App for App {
             prog
         };
         if ended {
-            eprintln!("[swara] selesai pos={:.1}s dur={:.1}s", self.progress.pos, self.progress.dur);
-            // Lagu yang "selesai" padahal baru berjalan sekejap berarti
-            // payload-nya rusak. Coba sekali lagi, lalu berhenti — jangan
-            // melompat beruntun sampai antrean habis.
-            if self.progress.dur > 0.0 && self.progress.pos < 1.5 {
-                self.early_ends += 1;
-                if self.early_ends >= 3 {
-                    self.player.pause();
-                    self.toast("audio gagal diputar, berhenti di sini");
-                } else if let Some(t) = self.current.clone() {
-                    self.play_track(t, None);
-                }
+            eprintln!(
+                "[swara] selesai pos={:.1}s dur={:.1}s",
+                self.progress.pos, self.progress.dur
+            );
+            // Lagu berikutnya dipilih konduktor, bukan di sini: kalau jendela
+            // tersembunyi, `update` tidak dipanggil sama sekali.
+        }
+
+        // Konduktor memutar lagu baru tanpa lewat UI; ambil alih tampilannya.
+        let adopted = {
+            let g = self.cond.lock().unwrap();
+            if g.seq != self.cond_seq && g.seq > 0 {
+                let id = g.seq;
+                let t = g.track.clone();
+                let s = g.stream.clone();
+                Some((id, t, s))
             } else {
-                self.early_ends = 0;
-                self.next_track(1);
+                None
             }
+        };
+        if let Some((seq, Some(t), s)) = adopted {
+            self.cond_seq = seq;
+            self.adopt(t, s);
         }
 
         // Uji manual: SWARA_SEEK=120 melompat sekali setelah pemutaran jalan.
@@ -1907,6 +1946,15 @@ impl eframe::App for App {
         if self.loading || self.progress.playing || self.toast.is_some() {
             ctx.request_repaint_after(Duration::from_millis(80));
         }
+
+        // Tetap bangun walau jendela disembunyikan di workspace lain. Tanpa
+        // detak ini egui hanya menggambar saat ada input, jadi lagu yang habis
+        // tidak pernah lanjut ke antrean berikutnya sampai jendelanya dibuka.
+        if std::env::var("SWARA_TICK_DEBUG").is_ok() {
+            eprintln!("[tick] pos={:.1} fps_ok", self.progress.pos);
+        }
+        let tick = if self.current.is_some() { 200 } else { 1000 };
+        ctx.request_repaint_after(std::time::Duration::from_millis(tick));
 
         // F / Esc berlaku walau kotak cari sedang fokus.
         ctx.input(|i| {
