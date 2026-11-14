@@ -1,4 +1,4 @@
-# Swara
+# Swara 
 
 Pemutar musik desktop untuk YouTube Music, ditulis penuh dalam Rust. Tidak ada
 Chromium, tidak ada webview, tidak ada server lokal: satu binary yang membuka
