@@ -73,6 +73,8 @@ jobs:
           cp README.md LICENSE "$dist/"
           tar -czf "${{ matrix.asset }}" "$dist"
           shasum -a 256 "${{ matrix.asset }}" > "${{ matrix.asset }}.sha256"
+          # binari mentah juga diunggah, supaya bisa dijalankan tanpa ekstrak
+          cp "target/${{ matrix.target }}/release/swara" "swara-${{ matrix.name }}"
 
       - name: Paketkan (Windows)
         if: runner.os == 'Windows'
@@ -85,6 +87,8 @@ jobs:
           Compress-Archive -Path $dist -DestinationPath "${{ matrix.asset }}" -Force
           (Get-FileHash "${{ matrix.asset }}" -Algorithm SHA256).Hash.ToLower() + "  ${{ matrix.asset }}" |
             Out-File -Encoding ascii "${{ matrix.asset }}.sha256"
+          # binari mentah, bisa langsung diklik tanpa ekstrak
+          Copy-Item "target/${{ matrix.target }}/release/swara.exe" "swara-${{ matrix.name }}.exe"
 
       - name: Paket .deb dan .rpm
         if: matrix.target == 'x86_64-unknown-linux-gnu'
@@ -118,6 +122,8 @@ jobs:
           path: |
             ${{ matrix.asset }}
             ${{ matrix.asset }}.sha256
+            swara-${{ matrix.name }}
+            swara-${{ matrix.name }}.exe
 
   release:
     name: Rilis GitHub
@@ -151,6 +157,9 @@ jobs:
             echo "Ekstrak, lalu jalankan \`swara\`. Di macOS pertama kali perlu"
             echo "\`xattr -dr com.apple.quarantine swara\` karena binary belum ditandatangani."
             echo
+            echo "Binari mentah juga tersedia tanpa arsip: \`swara-windows-x86_64.exe\`,"
+            echo "\`swara-linux-x86_64\`, \`swara-macos-arm64\`, \`swara-macos-x86_64\`."
+            echo
             echo "Fitur akun (playlist dan lagu disukai) baru tersedia di Linux;"
             echo "di Windows dan macOS Swara tetap mencari dan memutar musik."
             echo
@@ -165,4 +174,8 @@ jobs:
             dist/*.zip
             dist/*.deb
             dist/*.rpm
+            dist/swara-linux-x86_64
+            dist/swara-windows-x86_64.exe
+            dist/swara-macos-arm64
+            dist/swara-macos-x86_64
             dist/*.sha256
