@@ -33,6 +33,12 @@ pub fn spawn(
         .spawn(move || {
             let mut last_playing: Option<bool> = None;
             let mut last_seq = 0u64;
+            // Jam pembanding: kalau posisi berhenti maju (unduhan tersendat)
+            // atau melompat, pembaca yang mengekstrapolasi sendiri akan
+            // melenceng. Dorong `Seeked` supaya mereka menyegarkan diri.
+            let mut prev_pos = 0.0f64;
+            let mut prev_at = std::time::Instant::now();
+            let mut last_sync = std::time::Instant::now();
             loop {
                 while let Ok(e) = rx.try_recv() {
                     let p = snap.lock().unwrap().clone();
@@ -68,6 +74,16 @@ pub fn spawn(
                     ctl.status(p.playing);
                 }
                 ctl.position(p.pos);
+
+                let now = std::time::Instant::now();
+                let dt = now.duration_since(prev_at).as_secs_f64();
+                let drift = (p.pos - prev_pos - dt).abs();
+                if p.playing && (drift > 0.30 || now.duration_since(last_sync).as_secs() >= 5) {
+                    ctl.seeked(p.pos);
+                    last_sync = now;
+                }
+                prev_pos = p.pos;
+                prev_at = now;
 
                 // Lagu yang diputar konduktor (jendela tersembunyi) tidak
                 // lewat UI, jadi metadata-nya juga harus dikirim dari sini.

@@ -18,6 +18,9 @@ pub enum Cmd {
     },
     Status(bool),
     Position(f64),
+    /// Pancarkan sinyal `Seeked` di posisi ini: satu-satunya cara pembaca
+    /// seperti quickshell menyegarkan cache posisinya.
+    Seeked(f64),
     Unsupported,
 }
 
@@ -57,6 +60,10 @@ impl Ctl {
 
     pub fn position(&self, pos: f64) {
         self.send(Cmd::Position(pos));
+    }
+
+    pub fn seeked(&self, pos: f64) {
+        self.send(Cmd::Seeked(pos));
     }
 
     pub fn clear(&self) {
@@ -170,6 +177,7 @@ async fn serve(rx: Receiver<Cmd>, events: Sender<Event>) -> anyhow::Result<()> {
 async fn commands(player: &Player, rx: Receiver<Cmd>) {
     // `recv_timeout` akan memblokir thread runtime sehingga D-Bus berhenti
     // dilayani. Jadi: coba ambil tanpa menunggu, lalu tidur async sebentar.
+    let mut last_pos = 0.0f64;
     loop {
         match rx.try_recv() {
             Ok(Cmd::Track { track, dur, art }) => {
@@ -197,6 +205,26 @@ async fn commands(player: &Player, rx: Receiver<Cmd>) {
             }
             Ok(Cmd::Position(pos)) => {
                 player.set_position(Time::from_micros((pos * 1_000_000.0) as i64));
+                // `Position` tidak punya `PropertiesChanged` (memang begitu
+                // spesifikasinya), dan pembaca seperti quickshell hanya
+                // menyegarkan cache-nya saat ada PropertiesChanged lain. Jadi
+                // lompatan posisi (seek) harus memicu satu, kalau tidak lirik
+                // di islet terus memakai jam lama setelah durasi digeser.
+                if (pos - last_pos).abs() > 1.2 {
+                    let t = Time::from_micros((pos * 1_000_000.0) as i64);
+                    // Sinyal yang memang disediakan spesifikasi untuk lompatan
+                    // posisi. quickshell memakainya untuk menyegarkan cache.
+                    let _ = player.seeked(t).await;
+                    let mut m = player.metadata().clone();
+                    m.set_comment(Some(vec![format!("pos {pos:.1}")]));
+                    let _ = player.set_metadata(m).await;
+                }
+                last_pos = pos;
+            }
+            Ok(Cmd::Seeked(pos)) => {
+                let _ = player
+                    .seeked(Time::from_micros((pos * 1_000_000.0) as i64))
+                    .await;
             }
             Ok(Cmd::Unsupported) => {
                 let _ = player.set_playback_status(PlaybackStatus::Stopped).await;
