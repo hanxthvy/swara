@@ -6,7 +6,7 @@
 
 use crate::api::{Card, Collection, Lyrics, Row, Stream, Track};
 use crate::player::{Player, Progress};
-use crate::mpris::{Event as MprisEvent, Mpris};
+use crate::mpris::Ctl as MprisCtl;
 use crate::theme::{self, shape, type_scale as ts, Scheme};
 use crate::worker::{Job, Out, Worker};
 use egui::{
@@ -242,9 +242,10 @@ pub struct App {
     toast: Option<(String, Instant)>,
     last_error: Option<String>,
     autoplay: Option<String>,
-    mpris: Option<Mpris>,
-    last_playing: bool,
-    last_pos_push: Instant,
+    /// Kendali MPRIS (tulis saja). Perintah dari panel sistem ditangani
+    /// `bridge.rs`, bukan di sini — saat jendela di workspace lain `update`
+    /// tidak dipanggil sama sekali.
+    mpris: Option<MprisCtl>,
     expanded: bool,
     debug_seek: Option<f64>,
     cond: Arc<Mutex<crate::conductor::Cond>>,
@@ -258,7 +259,8 @@ impl App {
         player: Player,
         worker: Worker,
         autoplay: Option<String>,
-        mpris: Option<Mpris>,
+        play_id: Option<String>,
+        mpris: Option<MprisCtl>,
         cond: Arc<Mutex<crate::conductor::Cond>>,
     ) -> Self {
         install_fonts(&cc.egui_ctx);
@@ -305,8 +307,6 @@ impl App {
             last_error: None,
             autoplay,
             mpris,
-            last_playing: false,
-            last_pos_push: Instant::now(),
             expanded: std::env::var("SWARA_EXPAND").is_ok(),
             cond_seq: 0,
     debug_seek: std::env::var("SWARA_SEEK")
@@ -319,6 +319,17 @@ impl App {
             None
         };
         app.worker.send(Job::Home);
+        if let Some(id) = play_id {
+            // Lagu tertentu: judulnya menyusul dari `Out::Loaded` (Stream),
+            // jadi `track` di sini cukup id-nya.
+            app.play_track(
+                Track {
+                    id,
+                    ..Default::default()
+                },
+                None,
+            );
+        }
         if let Some(q) = app.autoplay.clone() {
             app.tab = Tab::Cari;
             app.query = q.clone();
@@ -408,6 +419,22 @@ impl App {
                 }
                 let dur = if info.dur > 0.0 { info.dur } else { track.secs };
                 self.current_info = Some(info);
+                // Judul/artis dari `Stream` mengisi kekosongan pada track yang
+                // datang tanpa metadata (mis. diputar lewat `SWARA_PLAY`).
+                if let Some(c) = self.current.as_mut() {
+                    if c.title.is_empty() {
+                        c.title = self.current_info.as_ref().map(|i| i.title.clone()).unwrap_or_default();
+                    }
+                    if c.artist.is_empty() {
+                        c.artist = self.current_info.as_ref().map(|i| i.artist.clone()).unwrap_or_default();
+                    }
+                    if c.thumb.is_empty() {
+                        c.thumb = self.current_info.as_ref().map(|i| i.thumb.clone()).unwrap_or_default();
+                    }
+                    if c.secs <= 0.0 {
+                        c.secs = dur;
+                    }
+                }
                 self.player.play(audio, 0.0, dur);
                 self.progress.dur = dur;
                 self.progress.ended = false;
@@ -420,7 +447,7 @@ impl App {
                 }
                 if let Some(m) = &self.mpris {
                     if let Some(cur) = &self.current {
-                        m.track(cur, dur, &track.thumb);
+                        m.track(cur, dur, &cur.thumb.clone());
                         m.status(true);
                         m.position(0.0);
                     }
@@ -486,6 +513,17 @@ impl App {
             self.queue.insert(0, track.clone());
         }
         self.cond.lock().unwrap().set_queue(&self.queue, &track.id);
+        // Siapkan lagu berikutnya di latar supaya pindah lagu tidak menunggu
+        // jaringan.
+        if let Some(n) = self
+            .queue
+            .iter()
+            .position(|t| t.id == track.id)
+            .and_then(|i| self.queue.get(i + 1))
+            .cloned()
+        {
+            self.api.prefetch(&n);
+        }
         self.worker.send(Job::Radio(track.id.clone()));
     }
 
@@ -1894,48 +1932,10 @@ impl eframe::App for App {
             }
         }
 
-        // Kendali dari panel sistem lewat MPRIS (islet, playerctl, waybar).
-        let mut evs: Vec<MprisEvent> = Vec::new();
-        if let Some(m) = &self.mpris {
-            while let Ok(e) = m.rx.try_recv() {
-                evs.push(e);
-            }
-        }
-        for ev in evs {
-            match ev {
-                MprisEvent::Play => {
-                    if !self.progress.playing {
-                        self.player.resume();
-                    }
-                }
-                MprisEvent::Pause => {
-                    if self.progress.playing {
-                        self.player.pause();
-                    }
-                }
-                MprisEvent::PlayPause => self.toggle_play(),
-                MprisEvent::Next => self.next_track(1),
-                MprisEvent::Prev => self.next_track(-1),
-                MprisEvent::SeekBy(off) => {
-                    let t = (self.progress.pos + off).max(0.0);
-                    self.player.seek(t);
-                }
-                MprisEvent::SeekTo(pos) => self.player.seek(pos.max(0.0)),
-                MprisEvent::Stop => self.player.stop(),
-            }
-        }
-        if self.progress.playing != self.last_playing {
-            self.last_playing = self.progress.playing;
-            if let Some(m) = &self.mpris {
-                m.status(self.progress.playing);
-            }
-        }
-        if self.progress.playing && self.last_pos_push.elapsed() > Duration::from_millis(500) {
-            self.last_pos_push = Instant::now();
-            if let Some(m) = &self.mpris {
-                m.position(self.progress.pos);
-            }
-        }
+        // Kendali dari panel sistem (islet, playerctl, waybar) ditangani
+        // `bridge.rs`; di sini tinggal memantulkan keadaan ke D-Bus saat UI
+        // sendiri yang mengganti lagu. Posisi/status dikabarkan jembatan, yang
+        // tetap hidup walau jendela tidak menggambar.
         if self.loading || self.progress.playing || self.toast.is_some() {
             ctx.request_repaint_after(Duration::from_millis(80));
         }

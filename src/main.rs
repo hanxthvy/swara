@@ -4,9 +4,12 @@
 //! `swara --probe [q]` uji jalur InnerTube + unduh + decode tanpa membuka jendela
 
 mod api;
-mod conductor;
 mod auth;
+mod bridge;
+mod cepat;
+mod conductor;
 mod mpris;
+mod stream;
 mod theme;
 mod player;
 mod ui;
@@ -68,9 +71,76 @@ fn main() -> anyhow::Result<()> {
         println!("swara {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
+    // Daftar lagu yang disukai di akun (playlist "LM"). Dipakai untuk memilih
+    // bahan uji yang benar-benar didengar pemiliknya.
+    // URL audio mentah untuk satu video: bahan uji kecepatan unduh.
+    if let Some(i) = args.iter().position(|a| a == "--url") {
+        let id = args.get(i + 1).cloned().unwrap_or_default();
+        let api = Api::new();
+        let s = api.stream(&id)?;
+        println!("{}", s.url);
+        return Ok(());
+    }
+    if let Some(i) = args.iter().position(|a| a == "--cepat") {
+        let id = args.get(i + 1).cloned().unwrap_or_default();
+        cepat::uji(&id);
+        return Ok(());
+    }
+    if let Some(i) = args.iter().position(|a| a == "--lib") {
+        let api = Api::new();
+        for c in api.library()? {
+            println!("{} | {} | {}", c.id, c.title, c.kind);
+        }
+        return Ok(());
+    }
+    if let Some(i) = args.iter().position(|a| a == "--isi") {
+        let id = args.get(i + 1).cloned().unwrap_or_default();
+        let n = args
+            .get(i + 2)
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(30);
+        let api = Api::new();
+        let c = api.browse(&id)?;
+        println!("{} — {} lagu", c.title, c.tracks.len());
+        for t in c.tracks.iter().take(n) {
+            println!("  {} | {} | {} | {}", t.id, t.title, t.artist, t.dur);
+        }
+        return Ok(());
+    }
+    if let Some(i) = args.iter().position(|a| a == "--suka") {
+        let n = args
+            .get(i + 1)
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(20);
+        let api = Api::new();
+        // "LM" sering ditolak (400) oleh klien ini; cari id playlist suka dari
+        // daftar pustaka sebagai gantinya.
+        let c = match api.browse("LM") {
+            Ok(c) => c,
+            Err(_) => {
+                let id = api
+                    .library()?
+                    .into_iter()
+                    .find(|k| {
+                        let t = k.title.to_lowercase();
+                        t.contains("disukai") || t.contains("liked")
+                    })
+                    .map(|k| k.id)
+                    .unwrap_or_else(|| "VLLM".into());
+                api.browse(&id)?
+            }
+        };
+        println!("{} — {} lagu", c.title, c.tracks.len());
+        for t in c.tracks.iter().take(n) {
+            println!("  {} | {} | {} | {}", t.id, t.title, t.artist, t.dur);
+        }
+        return Ok(());
+    }
 
     // Argumen bebas selain flag diperlakukan sebagai kueri: `swara "tulus"`.
     let autoplay = args.iter().find(|a| !a.starts_with('-')).cloned();
+    // `SWARA_PLAY=<videoId>` memutar satu lagu tertentu tanpa lewat pencarian.
+    let play_id = std::env::var("SWARA_PLAY").ok().filter(|s| !s.is_empty());
 
     let api = Arc::new(Api::new());
     let mut player = Player::new()?;
@@ -78,8 +148,12 @@ fn main() -> anyhow::Result<()> {
     let (snap, ends) = player.watch();
     let worker = Worker::new(api.clone());
     let api2 = api.clone();
+    // Konduktor dan jembatan MPRIS hidup sebelum jendela dibuka: keduanya
+    // harus tetap jalan saat `update` berhenti (jendela di workspace lain).
+    let (cond, cond_ctl) = conductor::spawn(api2.clone(), remote.clone(), snap.clone(), ends.clone());
     let mpris = mpris::Mpris::spawn();
-    eprintln!("[swara] mulai, mpris={}", mpris.is_some());
+    let mpris_ctl = bridge::spawn(mpris, remote.clone(), cond_ctl, cond.clone(), snap.clone());
+    eprintln!("[swara] mulai, mpris={}", mpris_ctl.is_some());
 
     let opts = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -106,14 +180,16 @@ fn main() -> anyhow::Result<()> {
                     ctx.request_repaint();
                 });
             }
-            let cond = conductor::spawn(api2.clone(), remote.clone(), snap.clone(), ends.clone());
+            // Konduktor dan jembatan MPRIS sudah jalan di `main`; UI hanya
+            // menerima pegangannya.
             Ok(Box::new(App::new(
                 cc,
                 api,
                 player,
                 worker,
                 autoplay.clone(),
-                mpris,
+                play_id.clone(),
+                mpris_ctl,
                 cond,
             )) as Box<dyn eframe::App>)
         }),

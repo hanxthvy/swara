@@ -6,10 +6,14 @@
 //! `update` jadi mati bersama jendelanya. Konduktor ini memegang sendiri
 //! antrean dan memerintah pemutar lewat `Remote`, jadi lagu tetap berlanjut
 //! walau tidak ada satu piksel pun digambar.
+//!
+//! Perintah `Next`/`Prev` dari panel sistem masuk lewat kanal yang sama, bukan
+//! lewat UI — sama alasannya.
 
 use crate::api::{Api, Stream, Track};
 use crate::player::{Progress, Remote};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{channel, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -37,21 +41,60 @@ impl Cond {
     }
 }
 
+pub enum Cmd {
+    /// Lompat `n` lagu dari posisi sekarang (1 = berikutnya, -1 = sebelumnya).
+    Step(isize),
+}
+
+/// Pegangan untuk mengirim perintah ke konduktor dari thread lain.
+#[derive(Clone)]
+pub struct Ctl {
+    tx: Sender<Cmd>,
+}
+
+impl Ctl {
+    pub fn step(&self, n: isize) {
+        let _ = self.tx.send(Cmd::Step(n));
+    }
+}
+
 pub fn spawn(
     api: Arc<Api>,
     remote: Remote,
     snap: Arc<Mutex<Progress>>,
     ends: Arc<AtomicU64>,
-) -> Arc<Mutex<Cond>> {
+) -> (Arc<Mutex<Cond>>, Ctl) {
     let cond = Arc::new(Mutex::new(Cond::default()));
     let shared = cond.clone();
+    let (tx, rx) = channel::<Cmd>();
+    let ctl = Ctl { tx };
 
     let _ = std::thread::Builder::new()
         .name("konduktor".into())
         .spawn(move || {
             let mut seen = ends.load(Ordering::SeqCst);
             loop {
-                std::thread::sleep(Duration::from_millis(120));
+                match rx.recv_timeout(Duration::from_millis(120)) {
+                    Ok(Cmd::Step(n)) => {
+                        let next = {
+                            let g = shared.lock().unwrap();
+                            let len = g.queue.len() as isize;
+                            if len == 0 {
+                                None
+                            } else {
+                                let i = (g.idx as isize + n).rem_euclid(len) as usize;
+                                g.queue.get(i).cloned()
+                            }
+                        };
+                        if let Some(t) = next {
+                            eprintln!("[konduktor] step {n} ke {}", t.id);
+                            start(&api, &remote, &shared, t);
+                        }
+                    }
+                    Err(RecvTimeoutError::Timeout) => {}
+                    Err(RecvTimeoutError::Disconnected) => return,
+                }
+
                 let n = ends.load(Ordering::SeqCst);
                 if n == seen {
                     continue;
@@ -72,10 +115,9 @@ pub fn spawn(
                     }
                     if let Some(t) = cur {
                         if let Some(s) = api.stream(&t.id).ok() {
-                            if let Ok(a) = api.fetch_audio(&s.url) {
-                                remote.play(a, 0.0, s.dur);
-                                continue;
-                            }
+                            let a = api.fetch_audio_stream(&s.url);
+                            remote.play(a, 0.0, s.dur);
+                            continue;
                         }
                     }
                     remote.pause();
@@ -86,21 +128,41 @@ pub fn spawn(
                 let Some(t) = next else { continue };
 
                 eprintln!("[konduktor] lanjut ke {}", t.id);
-                let Ok(s) = api.stream(&t.id) else { continue };
-                let Ok(a) = api.fetch_audio(&s.url) else {
+                if !start(&api, &remote, &shared, t) {
                     continue;
-                };
-                remote.play(a, 0.0, s.dur);
-                let mut g = shared.lock().unwrap();
-                g.early = 0;
-                g.seq += 1;
-                if let Some(i) = g.queue.iter().position(|x| x.id == t.id) {
-                    g.idx = i;
                 }
-                g.track = Some(t);
-                g.stream = Some(s);
             }
         });
 
-    cond
+    (cond, ctl)
+}
+
+/// Unduh lalu putar `t`, dan naikkan `seq` supaya UI (dan jembatan MPRIS) tahu
+/// lagu berganti. `false` kalau unduhan gagal.
+fn start(api: &Arc<Api>, remote: &Remote, shared: &Arc<Mutex<Cond>>, t: Track) -> bool {
+    // Kalau lagu ini sudah disiapkan (`prefetch`), tidak ada tunda jaringan.
+    let (s, a) = match api.take_ready(&t.id) {
+        Some(pair) => pair,
+        None => {
+            let Ok(s) = api.stream(&t.id) else { return false };
+            let a = api.fetch_audio_stream(&s.url);
+            (s, a)
+        }
+    };
+    remote.play(a, 0.0, s.dur);
+    let next = {
+        let mut g = shared.lock().unwrap();
+        g.early = 0;
+        g.seq += 1;
+        if let Some(i) = g.queue.iter().position(|x| x.id == t.id) {
+            g.idx = i;
+        }
+        g.track = Some(t);
+        g.stream = Some(s);
+        g.queue.get(g.idx + 1).cloned()
+    };
+    if let Some(n) = next {
+        api.prefetch(&n);
+    }
+    true
 }

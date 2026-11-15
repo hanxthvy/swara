@@ -27,8 +27,8 @@ pub enum Out {
     Browse(Collection),
     Radio(String, Vec<Track>),
     Lyrics(String, Lyrics),
-    /// track, stream, audio, sampul (bytes opsional)
-    Loaded(Track, Stream, Vec<u8>, Option<Vec<u8>>),
+    /// track, stream, audio (mengalir), sampul (bytes opsional)
+    Loaded(Track, Stream, Arc<crate::stream::Buf>, Option<Vec<u8>>),
     Logged(Option<String>),
     Library(Vec<Card>),
     Rated(String, bool),
@@ -127,8 +127,16 @@ fn handle(api: &Api, job: Job) -> Result<Out> {
             Out::Rated(id, like)
         }
         Job::Load(t) => {
+            // Sudah disiapkan di latar? langsung main.
+            if let Some((s, audio)) = api.take_ready(&t.id) {
+                let thumb = s.thumb.clone();
+                let art = api::thumb_or(&thumb).and_then(|u| api.fetch_image(&u).ok());
+                return Ok(Out::Loaded(t, s, audio, art));
+            }
             let s = api.stream(&t.id)?;
-            let audio = api.fetch_audio(&s.url)?;
+            // Unduhan jalan di latar; `Loaded` dikirim begitu potongan pertama
+            // ada, bukan setelah file utuh.
+            let audio = api.fetch_audio_stream(&s.url);
             let thumb = s.thumb.clone();
             let art = api::thumb_or(&thumb).and_then(|u| api.fetch_image(&u).ok());
             Out::Loaded(t, s, audio, art)

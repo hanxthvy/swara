@@ -33,12 +33,59 @@ pub enum Event {
     Stop,
 }
 
-pub struct Mpris {
+#[derive(Clone)]
+pub struct Ctl {
     tx: Sender<Cmd>,
+}
+
+impl Ctl {
+    pub fn send(&self, cmd: Cmd) {
+        let _ = self.tx.send(cmd);
+    }
+
+    pub fn track(&self, t: &Track, dur: f64, art: &str) {
+        self.send(Cmd::Track {
+            track: t.clone(),
+            dur,
+            art: art.to_string(),
+        });
+    }
+
+    pub fn status(&self, playing: bool) {
+        self.send(Cmd::Status(playing));
+    }
+
+    pub fn position(&self, pos: f64) {
+        self.send(Cmd::Position(pos));
+    }
+
+    pub fn clear(&self) {
+        self.send(Cmd::Unsupported);
+    }
+}
+
+/// Pegangan UI. Semua tulis ke D-Bus lewat `Ctl`; `rx` diambil jembatan
+/// (`bridge.rs`) supaya kendali dari panel sistem tidak bergantung pada
+/// `App::update` yang mati saat jendela pindah workspace.
+pub struct Mpris {
+    ctl: Ctl,
     pub rx: Receiver<Event>,
 }
 
+impl std::ops::Deref for Mpris {
+    type Target = Ctl;
+    fn deref(&self) -> &Ctl {
+        &self.ctl
+    }
+}
+
 impl Mpris {
+    /// Salinan pegangan tulis; jembatan memakai ini, UI memakai `Mpris` itu
+    /// sendiri (lewat `Deref`).
+    pub fn ctl(&self) -> Ctl {
+        self.ctl.clone()
+    }
+
     pub fn spawn() -> Option<Self> {
         let (cmd_tx, cmd_rx) = channel::<Cmd>();
         let (ev_tx, ev_rx) = channel::<Event>();
@@ -66,33 +113,9 @@ impl Mpris {
             return None;
         }
         Some(Mpris {
-            tx: cmd_tx,
+            ctl: Ctl { tx: cmd_tx },
             rx: ev_rx,
         })
-    }
-
-    pub fn send(&self, cmd: Cmd) {
-        let _ = self.tx.send(cmd);
-    }
-
-    pub fn track(&self, t: &Track, dur: f64, art: &str) {
-        self.send(Cmd::Track {
-            track: t.clone(),
-            dur,
-            art: art.to_string(),
-        });
-    }
-
-    pub fn status(&self, playing: bool) {
-        self.send(Cmd::Status(playing));
-    }
-
-    pub fn position(&self, pos: f64) {
-        self.send(Cmd::Position(pos));
-    }
-
-    pub fn clear(&self) {
-        self.send(Cmd::Unsupported);
     }
 }
 

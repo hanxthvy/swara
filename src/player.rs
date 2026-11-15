@@ -6,10 +6,10 @@
 //! yang mengandalkannya mati tanpa pesan. Di sini AAC di-decode sendiri dan
 //! dikirim ke output sebagai `Source<Item = f32>`.
 
+use crate::stream::{Buf, Grow};
 use anyhow::{anyhow, Result};
 use rodio::{OutputStream, OutputStreamHandle, Sink, Source};
 use std::collections::VecDeque;
-use std::io::Cursor;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::sync::Arc;
@@ -23,8 +23,8 @@ use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 
 enum Cmd {
-    /// (bytes audio, posisi mulai dalam detik, durasi dari metadata)
-    Play(Vec<u8>, f64, f64),
+    /// (audio mengalir, posisi mulai dalam detik, durasi dari metadata)
+    Play(Arc<Buf>, f64, f64),
     Pause,
     Resume,
     Stop,
@@ -49,8 +49,8 @@ pub struct Remote {
 }
 
 impl Remote {
-    pub fn play(&self, bytes: Vec<u8>, start: f64, dur: f64) {
-        let _ = self.tx.send(Cmd::Play(bytes, start, dur));
+    pub fn play(&self, buf: Arc<Buf>, start: f64, dur: f64) {
+        let _ = self.tx.send(Cmd::Play(buf, start, dur));
     }
     pub fn pause(&self) {
         let _ = self.tx.send(Cmd::Pause);
@@ -60,6 +60,11 @@ impl Remote {
     }
     pub fn stop(&self) {
         let _ = self.tx.send(Cmd::Stop);
+    }
+    /// Lompat ke `pos` detik. Sama dengan `Player::seek`, tapi bisa dipanggil
+    /// dari thread lain (jembatan MPRIS) tanpa menunggu UI menggambar.
+    pub fn seek(&self, pos: f64) {
+        let _ = self.tx.send(Cmd::Seek(pos.max(0.0)));
     }
 }
 
@@ -117,7 +122,7 @@ impl Player {
         (self.snap.clone(), self.ends.clone())
     }
 
-    pub fn play(&mut self, bytes: Vec<u8>, start_at: f64, dur: f64) {
+    pub fn play(&mut self, buf: Arc<Buf>, start_at: f64, dur: f64) {
         self.played.store(0, Ordering::Relaxed);
         self.cur = Progress {
             volume: self.cur.volume,
@@ -125,7 +130,7 @@ impl Player {
             pos: start_at,
             ..Default::default()
         };
-        let _ = self.tx.send(Cmd::Play(bytes, start_at, dur));
+        let _ = self.tx.send(Cmd::Play(buf, start_at, dur));
     }
 
     pub fn pause(&mut self) {
@@ -172,8 +177,10 @@ struct Audio {
     total: Option<f64>,
 }
 
-fn open_audio(bytes: &[u8]) -> Result<Audio> {
-    let mss = MediaSourceStream::new(Box::new(Cursor::new(bytes.to_vec())), Default::default());
+fn open_audio(buf: &Arc<Buf>) -> Result<Audio> {
+    // Tunggu cukup data untuk probe tanpa menunggu seluruh file.
+    buf.wait_for(96 * 1024);
+    let mss = MediaSourceStream::new(Box::new(Grow::new(buf.clone())), Default::default());
     let mut hint = Hint::new();
     hint.with_extension("m4a");
     hint.with_extension("mp4");
@@ -377,7 +384,7 @@ fn audio_thread(
     let mut cur: Option<Cur> = None;
     let mut volume = 0.8f32;
     let mut error: Option<String> = None;
-    let mut last_bytes: Vec<u8> = Vec::new();
+    let mut last: Option<Arc<Buf>> = None;
     let mut last_dur = 0.0f64;
     // Posisi dihitung dari jam dinding, bukan dari jumlah sampel yang sudah
     // ditarik sink. Hitungan sampel meleset kalau perangkat menegosiasikan laju
@@ -391,23 +398,35 @@ fn audio_thread(
 
     loop {
         match rx.recv_timeout(Duration::from_millis(20)) {
-            Ok(Cmd::Play(bytes, start, dur)) => {
+            Ok(Cmd::Play(buf, start, dur)) => {
                 if let Some(c) = cur.take() {
                     c.sink.stop();
                 }
                 reported_end = false;
                 error = None;
                 last_dur = dur;
-                last_bytes = bytes;
+                last = Some(buf.clone());
                 base_pos = start.max(0.0);
-                started = Some(std::time::Instant::now());
-                match build(&last_bytes, start, &handle, volume, dur, &played, &rate_slot) {
+                started = None;
+                match build(
+                    &buf,
+                    start,
+                    &handle,
+                    volume,
+                    dur,
+                    &played,
+                    &rate_slot,
+                ) {
                     Ok(sink) => {
                         cur = Some(Cur {
                             sink,
                             dur,
                             playing: true,
-                        })
+                        });
+                        // Jam posisi baru jalan setelah dekoder benar-benar
+                        // punya sampel: saat mengalir, `build` menunggu data
+                        // dan dulu selisihnya terbaca sebagai lirik keduluan.
+                        started = Some(std::time::Instant::now());
                     }
                     Err(e) => error = Some(e),
                 }
@@ -444,10 +463,10 @@ fn audio_thread(
                 }
                 reported_end = false;
                 base_pos = pos.max(0.0);
-                started = Some(std::time::Instant::now());
-                if !last_bytes.is_empty() {
+                started = None;
+                if let Some(buf) = last.clone() {
                     match build(
-                        &last_bytes,
+                        &buf,
                         pos,
                         &handle,
                         volume,
@@ -461,7 +480,8 @@ fn audio_thread(
                                 sink,
                                 dur: last_dur,
                                 playing: true,
-                            })
+                            });
+                            started = Some(std::time::Instant::now());
                         }
                         Err(e) => error = Some(e),
                     }
@@ -479,11 +499,11 @@ fn audio_thread(
 
         let status = match cur.as_mut() {
             Some(c) => {
-                let _rate = rate_slot.load(Ordering::Relaxed).max(1);
-                let pos = base_pos
-                    + started
-                        .map(|t| t.elapsed().as_secs_f64())
-                        .unwrap_or(0.0);
+                // Posisi diambil dari sampel yang benar-benar ditarik keluar
+                // sink, bukan dari jam dinding: kalau unduhan mengalir dan
+                // sesekali tersendat, jam dinding jalan terus sementara bunyi
+                // berhenti — dan lirik jadi keduluan.
+                let pos = base_pos + c.sink.get_pos().as_secs_f64();
                 let pos = pos.max(0.0);
                 let empty = c.playing && c.sink.empty();
                 let ended = empty && error.is_none() && !reported_end;
@@ -518,7 +538,7 @@ fn audio_thread(
 
 #[allow(clippy::too_many_arguments)]
 fn build(
-    bytes: &[u8],
+    buf: &Arc<Buf>,
     start: f64,
     handle: &OutputStreamHandle,
     volume: f32,
@@ -526,7 +546,7 @@ fn build(
     played: &Arc<AtomicU64>,
     rate_slot: &Arc<AtomicU64>,
 ) -> Result<Sink, String> {
-    let audio = open_audio(bytes).map_err(|e| format!("{e}"))?;
+    let audio = open_audio(buf).map_err(|e| format!("{e}"))?;
     let rate = audio.spec.rate as u64;
     rate_slot.store(rate, Ordering::Relaxed);
     played.store(0, Ordering::Relaxed);

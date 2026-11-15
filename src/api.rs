@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub const UA_WEB: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
@@ -90,6 +90,8 @@ pub struct Api {
     client: reqwest::blocking::Client,
     creds: Mutex<Option<Creds>>,
     session: Mutex<Option<Session>>,
+    /// Lagu berikutnya yang sudah disiapkan (URL + audio yang sedang turun).
+    pre: Mutex<std::collections::HashMap<String, (Stream, Arc<crate::stream::Buf>)>>,
 }
 
 fn cache_dir() -> PathBuf {
@@ -204,7 +206,37 @@ impl Api {
             client,
             creds: Mutex::new(cached),
             session: Mutex::new(auth::load()),
+            pre: Mutex::new(std::collections::HashMap::new()),
         }
+    }
+
+    /// Ambil lagu yang sudah disiapkan (kalau ada) — membuat pindah lagu
+    /// terasa langsung.
+    pub fn take_ready(&self, id: &str) -> Option<(Stream, Arc<crate::stream::Buf>)> {
+        self.pre.lock().unwrap().remove(id)
+    }
+
+    pub fn ready(&self, id: &str) -> bool {
+        self.pre.lock().unwrap().contains_key(id)
+    }
+
+    /// Siapkan satu lagu di latar: URL + audio yang langsung mengalir.
+    pub fn prefetch(self: &Arc<Self>, t: &Track) {
+        if t.id.is_empty() || self.ready(&t.id) {
+            return;
+        }
+        // Satu lagu di depan saja; simpanan lama dibuang supaya tidak menumpuk.
+        self.pre.lock().unwrap().clear();
+        let api = self.clone();
+        let id = t.id.clone();
+        let _ = std::thread::Builder::new()
+            .name("siapkan".into())
+            .spawn(move || {
+                if let Ok(s) = api.stream(&id) {
+                    let b = api.fetch_audio_stream(&s.url);
+                    api.pre.lock().unwrap().insert(id, (s, b));
+                }
+            });
     }
 
     fn creds(&self) -> Result<Creds> {
@@ -786,6 +818,12 @@ impl Api {
         Ok(bytes)
     }
 
+    /// Audio yang mengalir: unduhan jalan di latar, dekoder membaca sambil
+    /// menunggu. Bunyi mulai setelah beberapa ratus KB, bukan setelah file utuh.
+    pub fn fetch_audio_stream(&self, url: &str) -> Arc<crate::stream::Buf> {
+        crate::stream::download(self.client.clone(), url.to_string(), UA_VIS)
+    }
+
     pub fn fetch_image(&self, url: &str) -> Result<Vec<u8>> {
         if url.is_empty() {
             return Err(anyhow!("url kosong"));
@@ -936,6 +974,11 @@ pub fn thumb_or(u: &str) -> Option<String> {
     } else {
         Some(u.to_string())
     }
+}
+
+/// `visitorData` yang tersimpan (untuk alat uji).
+pub fn visitor_data() -> String {
+    Api::new().creds().map(|c| c.vd).unwrap_or_default()
 }
 
 fn parse_lrc(txt: &str) -> Vec<LyricLine> {
