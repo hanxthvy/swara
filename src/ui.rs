@@ -1652,18 +1652,16 @@ impl App {
             );
         }
 
-        // ---- tengah: sampul + judul + artis, tepat di tengah jendela
+        // ---- tengah: sampul + judul + artis, rapat di kanan jam.
+        // Sengaja TIDAK dipusatkan ke tengah jendela: di layar lebar itu
+        // meninggalkan celah ratusan piksel antara jam dan sampul, dan itu
+        // yang berulang kali dikeluhkan. Jangkar selalu di kanan jam.
         let roomy = win_w >= 980.0;
-        let text_w = if roomy { 190.0 } else { 130.0 };
+        let text_w: f32 = if roomy { 190.0 } else { 130.0 };
         let group_w = 40.0 + 12.0 + text_w;
         let time_x = nxt.right() + 20.0;
         let time_w = if win_w >= 720.0 { 66.0 } else { 0.0 };
-        let centered = rect.center().x - group_w / 2.0 + 20.0;
-        let art_left = if win_w >= 1180.0 {
-            centered
-        } else {
-            (time_x + time_w + 30.0).max(rect.left() + 8.0)
-        };
+        let art_left: f32 = (time_x + time_w + 30.0).max(rect.left() + 8.0);
         let art = Rect::from_center_size(pos2(art_left, mid), vec2(40.0, 40.0));
         ui.painter().rect_filled(art, Rounding::same(4.0), s.surface_high);
         if let Some(t) = cover {
@@ -1694,10 +1692,9 @@ impl App {
         );
 
         if roomy {
-            let menu = Rect::from_center_size(
-                pos2(rect.center().x + group_w / 2.0 + 86.0, mid),
-                vec2(24.0, 24.0),
-            );
+            // trio ini ikut grup info, bukan ke tengah jendela
+            let gx = art.left() + group_w + 20.0;
+            let menu = Rect::from_center_size(pos2(gx + 62.0, mid), vec2(24.0, 24.0));
             let mh = ui.interact(menu.expand(6.0), egui::Id::new("pb-more"), Sense::click());
             if mh.hovered() {
                 ui.painter()
@@ -1707,20 +1704,14 @@ impl App {
             if mh.clicked() {
                 self.show_queue = !self.show_queue;
             }
-            let dislike = Rect::from_center_size(
-                pos2(rect.center().x + group_w / 2.0 + 52.0, mid),
-                vec2(24.0, 24.0),
-            );
+            let dislike = Rect::from_center_size(pos2(gx + 28.0, mid), vec2(24.0, 24.0));
             let dh = ui.interact(dislike.expand(6.0), egui::Id::new("pb-dislike"), Sense::click());
             if dh.hovered() {
                 ui.painter()
                     .circle_filled(dislike.center(), 18.0, s.on_surface.gamma_multiply(0.08));
             }
             draw_icon(ui.painter(), Icon::Dislike, dislike, s.on_surface_variant);
-            let like = Rect::from_center_size(
-                pos2(rect.center().x + group_w / 2.0 + 24.0, mid),
-                vec2(24.0, 24.0),
-            );
+            let like = Rect::from_center_size(pos2(gx, mid), vec2(24.0, 24.0));
             let lh = ui.interact(like.expand(6.0), egui::Id::new("pb-like"), Sense::click());
             if lh.hovered() {
                 ui.painter()
