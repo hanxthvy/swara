@@ -103,3 +103,5 @@ else
 fi
 
 ls -lh "$OUT"/*.apk
+# base.apk cuma perantara, jangan ikut terunggah sebagai artefak rilis.
+rm -f "$OUT/base.apk"
