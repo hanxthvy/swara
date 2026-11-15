@@ -1,6 +1,6 @@
 [package]
 name = "swara"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.80"
 description = "Pemutar musik native untuk YouTube Music, tanpa browser"
@@ -8,12 +8,6 @@ license = "MIT"
 repository = "https://github.com/hanxthvy/swara"
 
 [dependencies]
-eframe = { version = "0.29", default-features = false, features = [
-    "glow",
-    "default_fonts",
-    "wayland",
-    "x11",
-] }
 egui = "0.29"
 reqwest = { version = "0.12", default-features = false, features = [
     "blocking",
@@ -30,13 +24,29 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png"]
 anyhow = "1"
 regex = "1"
 sha1 = "0.10"
-mpris-server = "0.11"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 aes = "0.8.4"
 cbc = "0.1.2"
 pbkdf2 = "0.12.2"
 hmac = "0.12.1"
 tokio = { version = "1.53.3", features = ["macros", "rt", "time"] }
+
+# Jendela: fitur Wayland/X11 hanya ada di Linux, kalau dipasang global build
+# Windows dan macOS ikut gagal. MPRIS juga D-Bus, jadi Linux saja.
+[target.'cfg(target_os = "linux")'.dependencies]
+eframe = { version = "0.29", default-features = false, features = [
+    "glow",
+    "default_fonts",
+    "wayland",
+    "x11",
+] }
+mpris-server = "0.11"
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+eframe = { version = "0.29", default-features = false, features = [
+    "glow",
+    "default_fonts",
+] }
 
 [profile.release]
 opt-level = 2

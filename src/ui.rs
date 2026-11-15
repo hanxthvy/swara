@@ -2533,11 +2533,19 @@ fn cover_seed(img: &image::DynamicImage) -> Option<[u8; 3]> {
 fn install_fonts(ctx: &egui::Context) {
     let mut fonts = FontDefinitions::default();
     let candidates = [
+        // Linux
         "/usr/share/fonts/roboto/Roboto[ital,wdth,wght].ttf",
         "/usr/share/fonts/noto/NotoSansCJK-Regular.ttc",
         "/usr/share/fonts/TTF/DejaVuSans.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "/usr/share/fonts/TTF/LiberationSans-Regular.ttf",
+        // Windows
+        "C:\\Windows\\Fonts\\segoeui.ttf",
+        "C:\\Windows\\Fonts\\msyh.ttc",
+        // macOS
+        "/System/Library/Fonts/SFNS.ttf",
+        "/System/Library/Fonts/Supplemental/Arial.ttf",
+        "/System/Library/Fonts/PingFang.ttc",
     ];
     let mut loaded = Vec::new();
     for (i, path) in candidates.iter().enumerate() {

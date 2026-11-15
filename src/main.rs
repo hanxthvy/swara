@@ -1,3 +1,6 @@
+// Di Windows, build rilis tidak perlu membuka jendela konsol hitam.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 //! Swara — pemutar musik native untuk YouTube Music.
 //!
 //! `swara`             buka aplikasi
@@ -5,9 +8,21 @@
 
 mod api;
 mod auth;
-mod bridge;
 mod cepat;
 mod conductor;
+mod paths;
+
+// MPRIS itu D-Bus, jadi hanya ada di Linux. Di sistem lain dipakai pengganti
+// tanpa efek supaya sisa kode tidak perlu bercabang.
+#[cfg(target_os = "linux")]
+mod bridge;
+#[cfg(target_os = "linux")]
+mod mpris;
+#[cfg(not(target_os = "linux"))]
+#[path = "bridge_stub.rs"]
+mod bridge;
+#[cfg(not(target_os = "linux"))]
+#[path = "mpris_stub.rs"]
 mod mpris;
 mod stream;
 mod theme;

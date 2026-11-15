@@ -1,0 +1,128 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            asset: swara-linux-x86_64.tar.gz
+          - name: windows-x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            asset: swara-windows-x86_64.zip
+          - name: macos-arm64
+            os: macos-14
+            target: aarch64-apple-darwin
+            asset: swara-macos-arm64.tar.gz
+          - name: macos-x86_64
+            os: macos-14
+            target: x86_64-apple-darwin
+            asset: swara-macos-x86_64.tar.gz
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Alat sistem (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libasound2-dev libxkbcommon-dev libwayland-dev libx11-xcb-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Bangun rilis
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Paketkan (Linux/macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          dist="swara-${GITHUB_REF_NAME:-dev}-${{ matrix.target }}"
+          mkdir -p "$dist"
+          cp "target/${{ matrix.target }}/release/swara" "$dist/"
+          cp README.md LICENSE "$dist/"
+          tar -czf "${{ matrix.asset }}" "$dist"
+          shasum -a 256 "${{ matrix.asset }}" > "${{ matrix.asset }}.sha256"
+
+      - name: Paketkan (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $dist = "swara-${{ github.ref_name }}-${{ matrix.target }}"
+          New-Item -ItemType Directory -Force -Path $dist | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/swara.exe" "$dist/"
+          Copy-Item README.md, LICENSE "$dist/"
+          Compress-Archive -Path $dist -DestinationPath "${{ matrix.asset }}" -Force
+          (Get-FileHash "${{ matrix.asset }}" -Algorithm SHA256).Hash.ToLower() + "  ${{ matrix.asset }}" |
+            Out-File -Encoding ascii "${{ matrix.asset }}.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: |
+            ${{ matrix.asset }}
+            ${{ matrix.asset }}.sha256
+
+  release:
+    name: Rilis GitHub
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Tulis catatan rilis
+        run: |
+          {
+            echo "Pemutar musik YouTube Music native, satu binary tanpa browser."
+            echo
+            echo "| platform | berkas |"
+            echo "|---|---|"
+            echo "| Linux x86_64 | swara-linux-x86_64.tar.gz |"
+            echo "| Windows x86_64 | swara-windows-x86_64.zip |"
+            echo "| macOS Apple Silicon | swara-macos-arm64.tar.gz |"
+            echo "| macOS Intel | swara-macos-x86_64.tar.gz |"
+            echo
+            echo "Ekstrak, lalu jalankan \`swara\`. Di macOS pertama kali perlu"
+            echo "\`xattr -dr com.apple.quarantine swara\` karena binary belum ditandatangani."
+            echo
+            echo "Fitur akun (playlist dan lagu disukai) baru tersedia di Linux;"
+            echo "di Windows dan macOS Swara tetap mencari dan memutar musik."
+            echo
+            echo "Sertakan berkas \`.sha256\` untuk memeriksa unduhan."
+          } > notes.md
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          body_path: notes.md
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.sha256

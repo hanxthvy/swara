@@ -26,8 +26,7 @@ pub struct Session {
 }
 
 fn cache_path() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    PathBuf::from(home).join(".cache").join("swara").join("auth.json")
+    crate::paths::cache_dir().join("auth.json")
 }
 
 fn now() -> u64 {
@@ -38,18 +37,50 @@ fn now() -> u64 {
 }
 
 pub fn candidates() -> Vec<PathBuf> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    let base = PathBuf::from(home);
+    // Profil bawaan Chromium, Chrome, Brave, Edge, dan Vivaldi di tiap sistem.
+    let mut roots: Vec<PathBuf> = Vec::new();
+    if cfg!(windows) {
+        if let Ok(la) = std::env::var("LOCALAPPDATA") {
+            let la = PathBuf::from(la);
+            for rel in [
+                "Chromium\\User Data",
+                "Google\\Chrome\\User Data",
+                "BraveSoftware\\Brave-Browser\\User Data",
+                "Microsoft\\Edge\\User Data",
+                "Vivaldi\\User Data",
+            ] {
+                roots.push(la.join(rel));
+            }
+        }
+    } else if cfg!(target_os = "macos") {
+        if let Ok(h) = std::env::var("HOME") {
+            let base = PathBuf::from(h).join("Library").join("Application Support");
+            for rel in [
+                "Chromium",
+                "Google/Chrome",
+                "BraveSoftware/Brave-Browser",
+                "Microsoft Edge",
+                "Vivaldi",
+            ] {
+                roots.push(base.join(rel));
+            }
+        }
+    } else if let Ok(h) = std::env::var("HOME") {
+        let base = PathBuf::from(h);
+        for rel in [
+            ".config/chromium",
+            ".config/google-chrome",
+            ".config/chromium-browser",
+            ".config/BraveSoftware/Brave-Browser",
+            ".config/microsoft-edge",
+            ".config/vivaldi",
+        ] {
+            roots.push(base.join(rel));
+        }
+    }
+
     let mut out = Vec::new();
-    for rel in [
-        ".config/chromium",
-        ".config/google-chrome",
-        ".config/chromium-browser",
-        ".config/BraveSoftware/Brave-Browser",
-        ".config/microsoft-edge",
-        ".config/vivaldi",
-    ] {
-        let dir = base.join(rel);
+    for dir in roots {
         if dir.is_dir() {
             let def = dir.join("Default");
             out.push(if def.is_dir() { def } else { dir });
@@ -175,6 +206,15 @@ pub fn read_profile(dir: &Path) -> Result<BTreeMap<String, String>> {
 
 /// Muat sesi dari profil Chromium pertama yang punya cookie login.
 pub fn import_any() -> Result<Session> {
+    // Chromium di Linux mengenkripsi cookie dengan kunci dari "peanuts".
+    // Di Windows kuncinya lewat DPAPI dan di macOS lewat Keychain, jadi impor
+    // sesi belum bisa dilakukan di sana; Swara tetap jalan tanpa akun.
+    if !cfg!(target_os = "linux") {
+        bail!(
+            "impor sesi Chromium baru didukung di Linux. Di sistem ini Swara tetap \
+             bisa mencari dan memutar, hanya fitur akun yang belum aktif"
+        );
+    }
     let mut last = None;
     for dir in candidates() {
         match read_profile(&dir) {

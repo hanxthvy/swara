@@ -95,8 +95,7 @@ pub struct Api {
 }
 
 fn cache_dir() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    PathBuf::from(home).join(".cache").join("swara")
+    crate::paths::cache_dir()
 }
 
 fn now() -> u64 {

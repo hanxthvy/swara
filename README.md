@@ -32,14 +32,27 @@ dari sampul lagu yang sedang diputar, jadi tiap lagu membawa suasana sendiri.
 - **Impor sesi** lewat `swara --login` (membaca cookie Chromium, bukan mengetik
   kata sandi).
 
-## Pasang
+## Unduh
 
-Butuh Rust 1.80+, `pkg-config`, dan header `alsa-lib`.
+Rilis siap pakai untuk Linux (x86_64), Windows (x86_64), dan macOS (Apple
+Silicon maupun Intel) ada di halaman [Releases](https://github.com/hanxthvy/swara/releases).
+Ekstrak, lalu jalankan `swara`. Di macOS, binary belum ditandatangani, jadi
+pertama kali jalankan `xattr -dr com.apple.quarantine swara`.
+
+## Bangun sendiri
+
+Butuh Rust 1.80+. Di Linux tambahan `pkg-config` dan header `alsa-lib`; di
+Windows dan macOS tidak ada dependensi sistem tambahan.
 
 ```sh
 cargo build --release
+# Linux/macOS
 install -Dm755 target/release/swara ~/.local/bin/swara
 ```
+
+Build untuk sistem lain dijalankan otomatis oleh GitHub Actions
+(`.github/workflows/build.yml`): empat target, satu job rilis saat tag `v*`
+dipush, lengkap dengan berkas `.sha256`.
 
 Pertama kali dijalankan, Swara mengambil kredensial InnerTube dari halaman
 YouTube Music dan menyimpannya 24 jam di `~/.cache/swara/creds.json`. Untuk
@@ -130,7 +143,11 @@ total saat jendelanya disembunyikan.
   `api.rs` — `swara --cepat` bisa dipakai untuk mengukur mana yang masih jalan.
 - LRCLIB hanya memberi waktu per baris; sorotan per kata dihitung dari panjang
   kata, jadi pada lagu dengan pelafalan tidak rata bisa meleset satu-dua kata.
-- Impor akun hanya lewat profil Chromium di mesin yang sama.
+- Impor akun hanya lewat profil Chromium di mesin yang sama, dan baru bisa
+  membaca cookie di Linux. Di Windows dan macOS Swara tetap mencari dan
+  memutar, hanya fitur akun belum aktif.
+- MPRIS hanya ada di Linux. Di Windows dan macOS belum ada integrasi panel
+  sistem (SMTC/Now Playing).
 
 ## Lisensi
 
