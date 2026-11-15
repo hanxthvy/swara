@@ -1047,10 +1047,6 @@ impl App {
 
 impl App {
     fn ui(&mut self, ctx: &egui::Context) {
-        if self.expanded {
-            self.now_playing(ctx);
-            return;
-        }
         let s = self.scheme;
         let w = ctx.screen_rect().width();
         // Breakpoint mengikuti YouTube Music: rail lebar >=1312, rail ikon di
@@ -1178,6 +1174,12 @@ impl App {
                 Tab::Koleksi => self.tab_koleksi(ui),
             });
 
+        // ---- lembar pemutar penuh, naik dari bawah seperti YT Music
+        let anim = ctx.animate_bool_with_time(egui::Id::new("np-expand"), self.expanded, 0.26);
+        if anim > 0.001 {
+            self.expanded_sheet(ctx, anim);
+        }
+
         if let Some((msg, at)) = self.toast.clone() {
             if at.elapsed() < Duration::from_secs(4) {
                 egui::Area::new("toast".into())
@@ -1200,9 +1202,15 @@ impl App {
 
     fn goto(&mut self, t: Tab) {
         self.tab = t;
-        if t == Tab::Koleksi && self.koleksi.is_none() {
+        if t == Tab::Koleksi {
             self.view = View::Feed;
-            self.worker.send(Job::Browse("FEmusic_liked_playlists".into()));
+            if self.koleksi.is_none() {
+                self.worker.send(Job::Browse("FEmusic_liked_playlists".into()));
+            }
+            // Langsung tarik playlist akun; jangan menunggu tombol ditekan.
+            if self.lib.is_empty() && self.logged.is_some() {
+                self.worker.send(Job::Library);
+            }
         }
         if t == Tab::Cari {
             self.focus_cari = true;
@@ -1889,8 +1897,49 @@ impl App {
 
     // ---- pemutar penuh (klik chevron di bar bawah)
 
-    fn now_playing(&mut self, ctx: &egui::Context) {
+    /// Lembar pemutar penuh yang naik dari bawah. `t` 0..1 dari animasi bawaan
+    /// egui, jadi membuka dan menutup sama-sama beranimasi.
+    fn expanded_sheet(&mut self, ctx: &egui::Context, t: f32) {
         let s = self.scheme;
+        let screen = ctx.screen_rect();
+        let dy = (1.0 - t) * screen.height();
+        egui::Area::new("np-sheet".into())
+            .fixed_pos(screen.min)
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                ui.set_clip_rect(screen);
+                // latar gelap penuh; tepi atasnya ikut naik bersama animasi
+                ui.painter().rect_filled(
+                    Rect::from_min_max(pos2(screen.left(), screen.top() + dy), screen.max),
+                    Rounding::same(0.0),
+                    s.surface,
+                );
+                ui.add_space(dy);
+                // Isi tetap seukuran layar penuh, hanya digeser turun; tata
+                // letaknya tidak dihitung ulang, jadi animasi turun mulus.
+                let body = Rect::from_min_size(
+                    pos2(screen.left(), screen.top() + dy),
+                    vec2(screen.width(), screen.height()),
+                );
+                let clip = Rect::from_min_max(
+                    pos2(screen.left(), screen.top() + dy),
+                    screen.max,
+                );
+                let mut child = ui.new_child(
+                    egui::UiBuilder::new()
+                        .max_rect(body.shrink2(vec2(24.0, 12.0)))
+                        .layout(Layout::top_down(Align::Min)),
+                );
+                child.set_clip_rect(clip);
+                self.now_playing(&mut child, screen.width());
+            });
+        // terus minta gambar selama animasi berjalan, termasuk saat menutup
+        if t > 0.0 && t < 1.0 {
+            ctx.request_repaint_after(Duration::from_millis(16));
+        }
+    }
+
+    fn now_playing(&mut self, ui: &mut Ui, w: f32) {
         let track = self.current.clone();
         let dur = self
             .current_info
@@ -1900,63 +1949,54 @@ impl App {
             .or_else(|| track.as_ref().map(|t| t.secs))
             .unwrap_or(0.0);
         let cover = self.cover_of();
-        let w = ctx.screen_rect().width();
         let split = w >= 900.0;
 
-        egui::CentralPanel::default()
-            .frame(
-                egui::Frame::none()
-                    .fill(s.surface)
-                    .inner_margin(egui::Margin::symmetric(24.0, 12.0)),
-            )
-            .show(ctx, |ui| {
-                // kepala: turun ke beranda + pemilih panel
-                ui.horizontal(|ui| {
-                    if self.icon_button(ui, Icon::ChevronDown, 36.0, Btn::Ghost).clicked() {
-                        self.expanded = false;
-                    }
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if self.chip(ui, "Lirik", self.show_lyrics).clicked() {
-                            self.show_lyrics = !self.show_lyrics;
-                        }
-                        if self.chip(ui, "Antrean", !self.show_lyrics).clicked() {
-                            self.show_lyrics = false;
-                        }
-                    });
-                });
-                ui.add_space(6.0);
-
-                if split {
-                    let total_w = ui.available_width();
-                    let total_h = ui.available_height();
-                    ui.horizontal_top(|ui| {
-                        let side = (total_h - 210.0).clamp(150.0, total_w * 0.46).min(400.0);
-                        ui.vertical(|ui| {
-                            ui.set_width(side);
-                            self.big_art(ui, side, cover.clone());
-                            ui.add_space(16.0);
-                            self.player_body(ui, &track, dur);
-                        });
-                        ui.add_space(28.0);
-                        ui.vertical(|ui| {
-                            ui.set_width((total_w - side - 28.0).max(240.0));
-                            self.side_panel_body(ui, total_h - 12.0);
-                        });
-                    });
-                } else {
-                    let side = (ui.available_width() * 0.62)
-                        .min(ui.available_height() * 0.40)
-                        .clamp(120.0, 320.0);
-                    ui.vertical_centered(|ui| self.big_art(ui, side, cover.clone()));
-                    ui.add_space(12.0);
-                    self.player_body(ui, &track, dur);
-                    ui.add_space(12.0);
-                    let rest = ui.available_height();
-                    if rest > 80.0 {
-                        self.side_panel_body(ui, rest - 8.0);
-                    }
+        // kepala: turun ke beranda + pemilih panel
+        ui.horizontal(|ui| {
+            if self.icon_button(ui, Icon::ChevronDown, 36.0, Btn::Ghost).clicked() {
+                self.expanded = false;
+            }
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if self.chip(ui, "Lirik", self.show_lyrics).clicked() {
+                    self.show_lyrics = !self.show_lyrics;
+                }
+                if self.chip(ui, "Antrean", !self.show_lyrics).clicked() {
+                    self.show_lyrics = false;
                 }
             });
+        });
+        ui.add_space(6.0);
+
+        if split {
+            let total_w = ui.available_width();
+            let total_h = ui.available_height();
+            ui.horizontal_top(|ui| {
+                let side = (total_h - 210.0).clamp(150.0, total_w * 0.46).min(400.0);
+                ui.vertical(|ui| {
+                    ui.set_width(side);
+                    self.big_art(ui, side, cover.clone());
+                    ui.add_space(16.0);
+                    self.player_body(ui, &track, dur);
+                });
+                ui.add_space(28.0);
+                ui.vertical(|ui| {
+                    ui.set_width((total_w - side - 28.0).max(240.0));
+                    self.side_panel_body(ui, total_h - 12.0);
+                });
+            });
+        } else {
+            let side = (ui.available_width() * 0.62)
+                .min(ui.available_height() * 0.40)
+                .clamp(120.0, 320.0);
+            ui.vertical_centered(|ui| self.big_art(ui, side, cover.clone()));
+            ui.add_space(12.0);
+            self.player_body(ui, &track, dur);
+            ui.add_space(12.0);
+            let rest = ui.available_height();
+            if rest > 80.0 {
+                self.side_panel_body(ui, rest - 8.0);
+            }
+        }
     }
 
     /// Isi panel kanan pada pemutar penuh: antrean atau lirik.
@@ -2378,10 +2418,18 @@ impl App {
             });
             ui.add_space(8.0);
             if self.lib.is_empty() {
-                ui.label(ts::body(
-                    "Playlist milik akun akan muncul di sini setelah tersambung.",
-                    s.on_surface_variant,
-                ));
+                ui.horizontal(|ui| {
+                    if self.logged.is_some() {
+                        ui.spinner();
+                        ui.add_space(6.0);
+                        ui.label(ts::body("Memuat playlist akun…", s.on_surface_variant));
+                    } else {
+                        ui.label(ts::body(
+                            "Masuk lewat sesi Chromium untuk melihat playlist akun.",
+                            s.on_surface_variant,
+                        ));
+                    }
+                });
             } else {
                 let lib = self.lib.clone();
                 ScrollArea::vertical()
