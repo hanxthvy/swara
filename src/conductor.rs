@@ -37,7 +37,14 @@ impl Cond {
     }
 
     fn after_current(&self) -> Option<Track> {
-        self.queue.get(self.idx + 1).cloned()
+        if self.queue.is_empty() {
+            return None;
+        }
+        // Habis di ujung: putar lagi dari awal, jangan berhenti.
+        self.queue
+            .get(self.idx + 1)
+            .cloned()
+            .or_else(|| self.queue.first().cloned())
     }
 }
 
@@ -115,7 +122,7 @@ pub fn spawn(
                     }
                     if let Some(t) = cur {
                         if let Some(s) = api.stream(&t.id).ok() {
-                            let a = api.fetch_audio_stream(&s.url);
+                            let a = api.fetch_audio_stream(&s.url, &t.id);
                             remote.play(a, 0.0, s.dur);
                             continue;
                         }
@@ -145,7 +152,7 @@ fn start(api: &Arc<Api>, remote: &Remote, shared: &Arc<Mutex<Cond>>, t: Track) -
         Some(pair) => pair,
         None => {
             let Ok(s) = api.stream(&t.id) else { return false };
-            let a = api.fetch_audio_stream(&s.url);
+            let a = api.fetch_audio_stream(&s.url, &t.id);
             (s, a)
         }
     };

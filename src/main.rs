@@ -141,6 +141,9 @@ fn main() -> anyhow::Result<()> {
     let autoplay = args.iter().find(|a| !a.starts_with('-')).cloned();
     // `SWARA_PLAY=<videoId>` memutar satu lagu tertentu tanpa lewat pencarian.
     let play_id = std::env::var("SWARA_PLAY").ok().filter(|s| !s.is_empty());
+    // `SWARA_LIST=<browseId>` memutar seluruh isi playlist sebagai antrean
+    // (mis. `VLLM` = Musik yang Disukai).
+    let play_list = std::env::var("SWARA_LIST").ok().filter(|s| !s.is_empty());
 
     let api = Arc::new(Api::new());
     let mut player = Player::new()?;
@@ -189,6 +192,7 @@ fn main() -> anyhow::Result<()> {
                 worker,
                 autoplay.clone(),
                 play_id.clone(),
+                play_list.clone(),
                 mpris_ctl,
                 cond,
             )) as Box<dyn eframe::App>)

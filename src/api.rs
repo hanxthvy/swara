@@ -233,7 +233,7 @@ impl Api {
             .name("siapkan".into())
             .spawn(move || {
                 if let Ok(s) = api.stream(&id) {
-                    let b = api.fetch_audio_stream(&s.url);
+                    let b = api.fetch_audio_stream(&s.url, &id);
                     api.pre.lock().unwrap().insert(id, (s, b));
                 }
             });
@@ -820,8 +820,8 @@ impl Api {
 
     /// Audio yang mengalir: unduhan jalan di latar, dekoder membaca sambil
     /// menunggu. Bunyi mulai setelah beberapa ratus KB, bukan setelah file utuh.
-    pub fn fetch_audio_stream(&self, url: &str) -> Arc<crate::stream::Buf> {
-        crate::stream::download(self.client.clone(), url.to_string(), UA_VIS)
+    pub fn fetch_audio_stream(&self, url: &str, tag: &str) -> Arc<crate::stream::Buf> {
+        crate::stream::download(self.client.clone(), url.to_string(), UA_VIS, tag.to_string())
     }
 
     pub fn fetch_image(&self, url: &str) -> Result<Vec<u8>> {

@@ -390,7 +390,6 @@ fn audio_thread(
     // ditarik sink. Hitungan sampel meleset kalau perangkat menegosiasikan laju
     // lain (PipeWire/easyeffects), dan lirik jadi makin jauh tiap menit.
     let mut base_pos = 0.0f64;
-    let mut started: Option<std::time::Instant> = None;
     // Sink yang sudah kosong tetap "kosong" sampai Play berikutnya datang.
     // Tanpa penanda ini `ended` dilaporkan tiap poll, dan pemanggil melompat
     // lagu berulang-ulang selama jeda muat (gejala: skip beruntun).
@@ -407,7 +406,6 @@ fn audio_thread(
                 last_dur = dur;
                 last = Some(buf.clone());
                 base_pos = start.max(0.0);
-                started = None;
                 match build(
                     &buf,
                     start,
@@ -423,18 +421,14 @@ fn audio_thread(
                             dur,
                             playing: true,
                         });
-                        // Jam posisi baru jalan setelah dekoder benar-benar
-                        // punya sampel: saat mengalir, `build` menunggu data
-                        // dan dulu selisihnya terbaca sebagai lirik keduluan.
-                        started = Some(std::time::Instant::now());
                     }
                     Err(e) => error = Some(e),
                 }
             }
             Ok(Cmd::Pause) => {
-                if let Some(t) = started.take() {
-                    base_pos += t.elapsed().as_secs_f64();
-                }
+                // Posisi dihitung dari `sink.get_pos()`, jadi base_pos tidak
+                // boleh ikut ditambah elapsed di sini — dulu itu bikin posisi
+                // melompat sejauh lagu yang sudah diputar setiap kali pause.
                 if let Some(c) = cur.as_mut() {
                     c.sink.pause();
                     c.playing = false;
@@ -444,7 +438,6 @@ fn audio_thread(
                 if let Some(c) = cur.as_mut() {
                     c.sink.play();
                     c.playing = true;
-                    started = Some(std::time::Instant::now());
                 }
             }
             Ok(Cmd::Stop) => {
@@ -452,7 +445,6 @@ fn audio_thread(
                     c.sink.stop();
                 }
                 cur = None;
-                started = None;
             }
             Ok(Cmd::Seek(pos)) => {
                 // Seek di tingkat sampel: buang audio lama, buka ulang, lalu
@@ -463,7 +455,6 @@ fn audio_thread(
                 }
                 reported_end = false;
                 base_pos = pos.max(0.0);
-                started = None;
                 if let Some(buf) = last.clone() {
                     match build(
                         &buf,
@@ -481,7 +472,6 @@ fn audio_thread(
                                 dur: last_dur,
                                 playing: true,
                             });
-                            started = Some(std::time::Instant::now());
                         }
                         Err(e) => error = Some(e),
                     }

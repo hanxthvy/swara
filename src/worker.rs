@@ -12,6 +12,8 @@ pub enum Job {
     Browse(String),
     Radio(String),
     Lyrics(Track),
+    /// Ambil seluruh isi playlist lalu jadikan antrean (dipakai `SWARA_LIST`).
+    PlayList(String),
     /// Siapkan lagu: ambil URL stream, unduh audio, ambil sampul & lirik.
     Load(Track),
     Login,
@@ -27,6 +29,8 @@ pub enum Out {
     Browse(Collection),
     Radio(String, Vec<Track>),
     Lyrics(String, Lyrics),
+    /// isi playlist siap diputar berurutan
+    PlayList(Vec<Track>),
     /// track, stream, audio (mengalir), sampul (bytes opsional)
     Loaded(Track, Stream, Arc<crate::stream::Buf>, Option<Vec<u8>>),
     Logged(Option<String>),
@@ -108,6 +112,10 @@ fn handle(api: &Api, job: Job) -> Result<Out> {
             Out::Suggest(q, r)
         }
         Job::Browse(id) => Out::Browse(api.browse(&id)?),
+        Job::PlayList(id) => {
+            let c = api.browse(&id)?;
+            Out::PlayList(c.tracks)
+        }
         Job::Radio(id) => {
             let r = api.radio(&id, 25).unwrap_or_default();
             Out::Radio(id, r)
@@ -136,7 +144,7 @@ fn handle(api: &Api, job: Job) -> Result<Out> {
             let s = api.stream(&t.id)?;
             // Unduhan jalan di latar; `Loaded` dikirim begitu potongan pertama
             // ada, bukan setelah file utuh.
-            let audio = api.fetch_audio_stream(&s.url);
+            let audio = api.fetch_audio_stream(&s.url, &t.id);
             let thumb = s.thumb.clone();
             let art = api::thumb_or(&thumb).and_then(|u| api.fetch_image(&u).ok());
             Out::Loaded(t, s, audio, art)

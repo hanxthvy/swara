@@ -260,6 +260,7 @@ impl App {
         worker: Worker,
         autoplay: Option<String>,
         play_id: Option<String>,
+        play_list: Option<String>,
         mpris: Option<MprisCtl>,
         cond: Arc<Mutex<crate::conductor::Cond>>,
     ) -> Self {
@@ -319,7 +320,10 @@ impl App {
             None
         };
         app.worker.send(Job::Home);
-        if let Some(id) = play_id {
+        if let Some(id) = play_list {
+            // Playlist akun jadi antrean penuh; lagu pertama langsung jalan.
+            app.worker.send(Job::PlayList(id));
+        } else if let Some(id) = play_id {
             // Lagu tertentu: judulnya menyusul dari `Out::Loaded` (Stream),
             // jadi `track` di sini cukup id-nya.
             app.play_track(
@@ -371,6 +375,7 @@ impl App {
                 }
             }
             Out::Browse(c) => self.koleksi = Some(c),
+            Out::PlayList(t) => self.play_queue(t),
             Out::Logged(l) => {
                 self.logged = l;
                 if let Some(name) = self.logged.clone() {
@@ -487,6 +492,18 @@ impl App {
             self.queue.push(t.clone());
         }
         self.worker.send(Job::Lyrics(t));
+    }
+
+    /// Pasang antrean penuh lalu mulai dari lagu pertama. Dipakai playlist
+    /// akun (`SWARA_LIST`) supaya yang diputar bukan cuma satu lagu + radio.
+    fn play_queue(&mut self, tracks: Vec<Track>) {
+        if tracks.is_empty() {
+            return;
+        }
+        eprintln!("[swara] antrean {} lagu", tracks.len());
+        self.queue = tracks;
+        let first = self.queue[0].clone();
+        self.play_track(first, None);
     }
 
     fn play_track(&mut self, track: Track, queue: Option<Vec<Track>>) {

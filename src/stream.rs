@@ -144,8 +144,13 @@ impl std::io::Seek for Grow {
     }
 }
 
-/// Unduh `url` di thread sendiri ke `Buf`.
-pub fn download(client: reqwest::blocking::Client, url: String, ua: &'static str) -> Arc<Buf> {
+/// Unduh `url` di thread sendiri ke `Buf`. `tag` hanya untuk nama file dump.
+pub fn download(
+    client: reqwest::blocking::Client,
+    url: String,
+    ua: &'static str,
+    tag: String,
+) -> Arc<Buf> {
     let buf = Buf::new();
     let b2 = buf.clone();
     let _ = std::thread::Builder::new()
@@ -174,6 +179,13 @@ pub fn download(client: reqwest::blocking::Client, url: String, ua: &'static str
                     }
                 }
                 b2.finish();
+                // SWARA_DUMP=1: simpan audio yang selesai diunduh, dipakai
+                // untuk mengukur sinkronisasi lirik (bandingkan rekaman output
+                // dengan isi file).
+                if std::env::var("SWARA_DUMP").is_ok() {
+                    let g = b2.st.lock().unwrap();
+                    let _ = std::fs::write(format!("/tmp/swara-dump-{tag}.m4a"), &g.data);
+                }
                 Ok(())
             };
             if let Err(e) = run() {
