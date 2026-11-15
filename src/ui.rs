@@ -1437,13 +1437,19 @@ impl App {
             );
             let te = egui::TextEdit::singleline(&mut self.query)
                 .frame(false)
-                .hint_text(
-                    RichText::new("Cari lagu, album, artis")
-                        .size(13.5)
-                        .color(s.on_surface_variant),
-                )
                 .margin(vec2(0.0, 0.0));
             let resp = ui.put(te_rect, te);
+            // placeholder digambar sendiri: hint bawaan TextEdit bisa terpotong
+            // di kiri saat kolomnya sempit.
+            if self.query.is_empty() && !resp.has_focus() {
+                ui.painter().text(
+                    pos2(te_rect.left(), te_rect.center().y),
+                    Align2::LEFT_CENTER,
+                    "Cari lagu, album, artis",
+                    FontId::proportional(13.0),
+                    s.on_surface_variant,
+                );
+            }
             if self.focus_cari {
                 resp.request_focus();
                 self.focus_cari = false;
