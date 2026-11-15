@@ -4,12 +4,12 @@ Pemutar musik desktop untuk YouTube Music, ditulis utuh dalam Rust. Tanpa
 Chromium, tanpa webview, tanpa server lokal: satu binary yang membuka jendelanya
 sendiri, mengambil audionya sendiri, dan mendekodenya sendiri.
 
-> **Tidak perlu login Google di Swara.** Tidak ada kolom kata sandi, tidak ada
-> halaman login, dan Swara tidak pernah meminta kredensial apa pun. Kalau kamu
-> sudah login YouTube di Chromium di mesin yang sama, Swara memakai sesi itu
-> (cookie-nya dibaca lokal, lalu dihapus lagi dari memori). Tanpa sesi pun Swara
-> tetap bisa mencari dan memutar musik — yang hilang hanya playlist akun dan
-> tombol suka.
+> **Tidak perlu login Google di Swara.** Tidak ada kolom kata sandi dan tidak ada
+> halaman login. Kalau kamu sudah login YouTube di Chromium di mesin yang sama,
+> Swara membaca cookie-nya sekali dari profil browser itu, lalu menyimpannya di
+> berkas cache milikmu sendiri (`auth.json`, bisa dihapus kapan saja lewat tombol
+> keluar). Tanpa sesi pun Swara tetap bisa mencari dan memutar musik; yang hilang
+> hanya playlist akun dan tombol suka.
 
 ![Beranda Swara](docs/beranda.png)
 
