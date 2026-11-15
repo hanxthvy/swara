@@ -634,9 +634,84 @@ impl Api {
                     }
                 }
             }
-            cards.truncate(16);
+            cards.truncate(20);
             if !cards.is_empty() {
                 rows.push(Row { title, items: cards });
+            }
+        }
+        // Kategori tambahan: YouTube Music asli punya banyak rak, bukan cuma
+        // dua baris dari FEmusic_home. Ambil dari halaman browse lain.
+        for bid in [
+            "FEmusic_charts",
+            "FEmusic_new_releases",
+            "FEmusic_moods_and_genres",
+        ] {
+            match self.shelves(bid) {
+                Ok(mut extra) => {
+                    eprintln!("[swara] rak tambahan {}: {}", bid, extra.len());
+                    rows.append(&mut extra);
+                }
+                Err(e) => eprintln!("[swara] rak tambahan {bid} gagal: {e:#}"),
+            }
+        }
+        Ok(rows)
+    }
+
+    /// Rak (carousel) dan kisi (grid) dari halaman browse mana pun, dipakai
+    /// beranda untuk menambah kategori seperti tangga lagu dan rilisan baru.
+    pub fn shelves(&self, browse_id: &str) -> Result<Vec<Row>> {
+        let c = self.creds()?;
+        let resp = self.itube(
+            "browse",
+            json!({"context": Self::ctx_remix(&c), "browseId": browse_id}),
+        )?;
+        let mut rows = Vec::new();
+        for sh in items(&resp, "musicCarouselShelfRenderer") {
+            let title = sh
+                .pointer("/header/musicCarouselShelfBasicHeaderRenderer/title")
+                .map(runs_text)
+                .unwrap_or_default();
+            let mut cards: Vec<Card> = Vec::new();
+            for node in sh
+                .get("contents")
+                .and_then(|c| c.as_array())
+                .cloned()
+                .unwrap_or_default()
+            {
+                if let Some(card) = Self::card(&node) {
+                    if !card.id.is_empty() {
+                        cards.push(card);
+                    }
+                }
+            }
+            cards.truncate(16);
+            if !cards.is_empty() && !title.is_empty() {
+                rows.push(Row { title, items: cards });
+            }
+        }
+        for g in items(&resp, "musicGridRenderer") {
+            let mut cards: Vec<Card> = Vec::new();
+            for node in g
+                .get("items")
+                .and_then(|c| c.as_array())
+                .cloned()
+                .unwrap_or_default()
+            {
+                if let Some(card) = Self::card(&node) {
+                    if !card.id.is_empty() {
+                        cards.push(card);
+                    }
+                }
+            }
+            cards.truncate(18);
+            if !cards.is_empty() {
+                rows.push(Row {
+                    title: match browse_id {
+                        "FEmusic_moods_and_genres" => "Suasana & genre".to_string(),
+                        _ => "Jelajahi".to_string(),
+                    },
+                    items: cards,
+                });
             }
         }
         Ok(rows)

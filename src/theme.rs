@@ -88,12 +88,12 @@ pub fn scheme(dark: bool, seed: Option<[u8; 3]>) -> Scheme {
             on_primary_container: hsl(h, (s * 0.65).max(0.32), 0.93),
             secondary_container: hsl(h, s * 0.30, 0.26),
             on_secondary_container: hsl(h, s * 0.30, 0.92),
-            surface: hsl(h, s * 0.12, 0.055),
-            surface_low: hsl(h, s * 0.14, 0.085),
-            surface_high: hsl(h, s * 0.16, 0.125),
-            surface_highest: hsl(h, s * 0.18, 0.175),
-            on_surface: hsl(h, 0.07, 0.94),
-            on_surface_variant: hsl(h, 0.08, 0.72),
+            surface: hsl(h, s * 0.08, 0.045),
+            surface_low: hsl(h, s * 0.07, 0.075),
+            surface_high: hsl(h, s * 0.07, 0.125),
+            surface_highest: hsl(h, s * 0.07, 0.172),
+            on_surface: hsl(h, 0.05, 0.95),
+            on_surface_variant: hsl(h, 0.06, 0.66),
             outline: hsl(h, 0.07, 0.44),
             outline_variant: hsl(h, 0.07, 0.24),
         }
@@ -149,6 +149,10 @@ pub mod type_scale {
 /// Sudut membulat khas Expressive: kartu besar, tombol penuh, sheet lebar.
 pub mod shape {
     pub const CARD: f32 = 24.0;
+    /// Radius kartu besar ala YouTube Music.
+    pub const RAD_CARD: f32 = 8.0;
+    /// Radius sampul kecil di baris lagu.
+    pub const RAD_THUMB: f32 = 4.0;
     pub const SHEET: f32 = 30.0;
     pub const CHIP: f32 = 16.0;
     pub const FIELD: f32 = 26.0;

@@ -65,6 +65,11 @@ enum Icon {
     Theme,
     ChevronDown,
     ChevronUp,
+    Queue,
+    Like,
+    More,
+    Shuffle,
+    Repeat,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -98,18 +103,20 @@ fn draw_icon(p: &egui::Painter, icon: Icon, r: Rect, c: Color32) {
             }
         }
         Icon::Next | Icon::Prev => {
+            // Cermin sempurna: segitiga dan palang sama-sama 0,60 s, jadi
+            // tinggi kedua ikon selalu identik.
             let flip = if icon == Icon::Next { 1.0 } else { -1.0 };
             let tri = vec![
-                pos2(m.x - s * 0.26 * flip, m.y - s * 0.28),
-                pos2(m.x - s * 0.26 * flip, m.y + s * 0.28),
-                pos2(m.x + s * 0.16 * flip, m.y),
+                pos2(m.x - s * 0.22 * flip, m.y - s * 0.30),
+                pos2(m.x - s * 0.22 * flip, m.y + s * 0.30),
+                pos2(m.x + s * 0.20 * flip, m.y),
             ];
             p.add(Shape::convex_polygon(tri, c, Stroke::NONE));
             let bar = Rect::from_center_size(
-                pos2(m.x + s * 0.30 * flip, m.y),
-                vec2(s * 0.10, s * 0.56),
+                pos2(m.x + s * 0.32 * flip, m.y),
+                vec2(s * 0.10, s * 0.60),
             );
-            p.rect_filled(bar, Rounding::same(s * 0.05), c);
+            p.rect_filled(bar, Rounding::same(s * 0.03), c);
         }
         Icon::Home => {
             let roof = vec![
@@ -182,6 +189,75 @@ fn draw_icon(p: &egui::Painter, icon: Icon, r: Rect, c: Color32) {
             p.line_segment([p1, p2], Stroke::new(s * 0.11, c));
             p.line_segment([p2, p3], Stroke::new(s * 0.11, c));
         }
+        Icon::Queue => {
+            for (i, w) in [0.54f32, 0.54, 0.36].iter().enumerate() {
+                let y = m.y + s * (i as f32 - 1.0) * 0.22;
+                let bar = Rect::from_center_size(pos2(m.x + s * 0.03, y), vec2(s * w, s * 0.09));
+                p.rect_filled(bar, Rounding::same(s * 0.045), c);
+            }
+            for i in 0..3 {
+                let y = m.y + s * (i as f32 - 1.0) * 0.22;
+                p.circle_filled(pos2(m.x - s * 0.32, y), s * 0.055, c);
+            }
+        }
+        Icon::Like => {
+            let up = vec![
+                pos2(m.x - s * 0.34, m.y + s * 0.34),
+                pos2(m.x - s * 0.34, m.y - s * 0.02),
+                pos2(m.x - s * 0.10, m.y - s * 0.02),
+                pos2(m.x + s * 0.02, m.y - s * 0.36),
+                pos2(m.x + s * 0.16, m.y - s * 0.30),
+                pos2(m.x + s * 0.10, m.y - s * 0.02),
+                pos2(m.x + s * 0.34, m.y - s * 0.02),
+                pos2(m.x + s * 0.34, m.y + s * 0.34),
+            ];
+            p.add(Shape::convex_polygon(up, c, Stroke::NONE));
+        }
+        Icon::More => {
+            for dx in [-0.24, 0.0, 0.24] {
+                p.circle_filled(pos2(m.x + s * dx, m.y), s * 0.07, c);
+            }
+        }
+        Icon::Shuffle => {
+            let mut a = pos2(m.x - s * 0.34, m.y - s * 0.22);
+            let mut b = pos2(m.x + s * 0.30, m.y + s * 0.22);
+            p.line_segment([a, b], Stroke::new(s * 0.09, c));
+            let tri = vec![
+                pos2(b.x - s * 0.14, b.y - s * 0.02),
+                pos2(b.x + s * 0.02, b.y + s * 0.02),
+                pos2(b.x - s * 0.02, b.y - s * 0.16),
+            ];
+            p.add(Shape::convex_polygon(tri, c, Stroke::NONE));
+            a = pos2(m.x - s * 0.34, m.y + s * 0.22);
+            b = pos2(m.x + s * 0.30, m.y - s * 0.22);
+            p.line_segment([a, b], Stroke::new(s * 0.09, c));
+            let tri2 = vec![
+                pos2(b.x - s * 0.14, b.y + s * 0.02),
+                pos2(b.x + s * 0.02, b.y - s * 0.02),
+                pos2(b.x - s * 0.02, b.y + s * 0.16),
+            ];
+            p.add(Shape::convex_polygon(tri2, c, Stroke::NONE));
+        }
+        Icon::Repeat => {
+            let r = s * 0.24;
+            for (a0, a1) in [(0.55f32, 2.15f32), (3.70, 5.30)] {
+                let n = 14;
+                let pts: Vec<egui::Pos2> = (0..=n)
+                    .map(|i| {
+                        let a = a0 + (a1 - a0) * (i as f32 / n as f32);
+                        pos2(m.x + a.cos() * r, m.y + a.sin() * r)
+                    })
+                    .collect();
+                p.add(Shape::line(pts, Stroke::new(s * 0.09, c)));
+            }
+            let tip = pos2(m.x + 0.55f32.cos() * r, m.y + 0.55f32.sin() * r);
+            let tri = vec![
+                pos2(tip.x - s * 0.04, tip.y - s * 0.10),
+                pos2(tip.x + s * 0.10, tip.y + s * 0.02),
+                pos2(tip.x - s * 0.10, tip.y + s * 0.02),
+            ];
+            p.add(Shape::convex_polygon(tri, c, Stroke::NONE));
+        }
         Icon::Theme => {
             p.circle_filled(m, s * 0.26, c);
             for k in 0..8 {
@@ -224,6 +300,7 @@ pub struct App {
     lyrics: Option<Lyrics>,
     lyrics_id: String,
     show_lyrics: bool,
+    show_queue: bool,
 
     queue: Vec<Track>,
     current: Option<Track>,
@@ -289,6 +366,7 @@ impl App {
             lyrics: None,
             lyrics_id: String::new(),
             show_lyrics: false,
+            show_queue: false,
             queue: Vec::new(),
             current: None,
             current_info: None,
@@ -308,7 +386,9 @@ impl App {
             last_error: None,
             autoplay,
             mpris,
-            expanded: std::env::var("SWARA_EXPAND").is_ok(),
+            expanded: std::env::var("SWARA_EXPAND")
+                .map(|v| !v.is_empty() && v != "0")
+                .unwrap_or(false),
             cond_seq: 0,
     debug_seek: std::env::var("SWARA_SEEK")
         .ok()
@@ -784,44 +864,45 @@ impl App {
 
     fn track_row(&mut self, ui: &mut Ui, t: &Track, idx: usize, dense: bool) -> bool {
         let s = self.scheme;
+        let _ = idx;
         let playing_this = self.current.as_ref().map(|c| c.id == t.id).unwrap_or(false);
         let ctx = ui.ctx().clone();
         self.ensure_thumb(&ctx, &t.thumb);
-        let h = if dense { 46.0 } else { 56.0 };
-        let side = if dense { 34.0 } else { 42.0 };
+        let h = if dense { 50.0 } else { 56.0 };
+        let side = if dense { 36.0 } else { 40.0 };
         let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::click());
         if resp.hovered() {
-            self.layer(ui, rect, 14.0, &resp, 0.07);
+            ui.painter()
+                .rect_filled(rect, Rounding::same(8.0), s.on_surface.gamma_multiply(0.06));
         }
         let mid = rect.center().y;
-        let mut x = rect.left() + 8.0;
-        if playing_this {
-            let ir = Rect::from_center_size(pos2(x + 10.0, mid), vec2(12.0, 12.0));
-            draw_icon(ui.painter(), Icon::Play, ir, s.primary);
-        } else {
-            ui.painter().text(
-                pos2(x + 10.0, mid),
-                Align2::CENTER_CENTER,
-                idx.to_string(),
-                FontId::proportional(11.5),
-                s.on_surface_variant,
-            );
-        }
-        x += 28.0;
-        let img = Rect::from_min_size(pos2(x, mid - side / 2.0), vec2(side, side));
+        let img = Rect::from_min_size(pos2(rect.left() + 4.0, mid - side / 2.0), vec2(side, side));
         ui.painter()
-            .rect_filled(img, Rounding::same(10.0), s.surface_high);
+            .rect_filled(img, Rounding::same(shape::RAD_THUMB), s.surface_high);
         if let Some(tex) = self.thumb_of(&t.thumb) {
             egui::Image::new((tex.id(), tex.size_vec2()))
                 .fit_to_exact_size(vec2(side, side))
-                .rounding(Rounding::same(10.0))
+                .rounding(Rounding::same(shape::RAD_THUMB))
                 .paint_at(ui, img);
         }
-        x += side + 12.0;
+        if playing_this {
+            ui.painter().rect_filled(
+                img,
+                Rounding::same(shape::RAD_THUMB),
+                Color32::from_black_alpha(150),
+            );
+            draw_icon(
+                ui.painter(),
+                Icon::Play,
+                Rect::from_center_size(img.center(), vec2(13.0, 13.0)),
+                Color32::WHITE,
+            );
+        }
 
+        let x = img.right() + 12.0;
         let dur_w = 44.0;
         let text_w = (rect.right() - x - dur_w - 8.0).max(60.0);
-        let chars = (text_w / 7.4).max(8.0) as usize;
+        let chars = (text_w / 7.2).max(8.0) as usize;
         ui.painter().text(
             pos2(x, mid - 8.0),
             Align2::LEFT_CENTER,
@@ -832,7 +913,7 @@ impl App {
         ui.painter().text(
             pos2(x, mid + 9.0),
             Align2::LEFT_CENTER,
-            short(&t.artist, (chars as f32 * 0.85) as usize),
+            short(&t.artist, (chars as f32 * 0.9) as usize),
             FontId::proportional(11.5),
             s.on_surface_variant,
         );
@@ -840,7 +921,7 @@ impl App {
             pos2(rect.right() - 8.0, mid),
             Align2::RIGHT_CENTER,
             &t.dur,
-            FontId::proportional(11.0),
+            FontId::proportional(11.5),
             s.on_surface_variant,
         );
         if resp.hovered() {
@@ -854,15 +935,15 @@ impl App {
         let ctx = ui.ctx().clone();
         self.ensure_thumb(&ctx, &card.thumb);
         let tex = self.thumb_of(&card.thumb);
-        ui.allocate_ui_with_layout(vec2(w, w + 50.0), Layout::top_down(Align::Min), |ui| {
+        ui.allocate_ui_with_layout(vec2(w, w + 46.0), Layout::top_down(Align::Min), |ui| {
             ui.set_width(w);
             let (rect, resp) = ui.allocate_exact_size(vec2(w, w), Sense::click());
             ui.painter()
-                .rect_filled(rect, Rounding::same(shape::CARD), s.surface_high);
+                .rect_filled(rect, Rounding::same(shape::RAD_CARD), s.surface_high);
             if let Some(t) = tex {
                 egui::Image::new((t.id(), t.size_vec2()))
                     .fit_to_exact_size(vec2(w, w))
-                    .rounding(Rounding::same(shape::CARD))
+                    .rounding(Rounding::same(shape::RAD_CARD))
                     .paint_at(ui, rect);
             } else if !card.thumb.is_empty() {
                 let tt = ui.input(|i| i.time) as f32;
@@ -871,20 +952,32 @@ impl App {
                     .circle_filled(rect.center(), w * 0.045, s.on_surface.gamma_multiply(a));
             }
             if resp.hovered() {
-                ui.painter().rect_stroke(
-                    rect,
-                    Rounding::same(shape::CARD),
-                    Stroke::new(1.5_f32, s.outline),
+                let c = pos2(rect.right() - 26.0, rect.bottom() - 26.0);
+                ui.painter().circle_filled(c, 18.0, s.on_surface);
+                draw_icon(
+                    ui.painter(),
+                    Icon::Play,
+                    Rect::from_center_size(c, vec2(16.0, 16.0)),
+                    s.surface,
                 );
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             }
             if resp.clicked() {
                 self.open_card(card);
             }
-            ui.add_space(8.0);
-            let chars = (w / 6.8).max(8.0) as usize;
-            ui.label(ts::title_m(short(&card.title, chars), s.on_surface).size(13.0));
-            ui.label(ts::body_s(short(&card.sub, chars), s.on_surface_variant).size(11.5));
+            ui.add_space(7.0);
+            let chars = (w / 6.6).max(8.0) as usize;
+            ui.label(
+                RichText::new(short(&card.title, chars))
+                    .size(13.5)
+                    .color(s.on_surface),
+            );
+            ui.add_space(1.0);
+            ui.label(
+                RichText::new(short(&card.sub, chars))
+                    .size(12.0)
+                    .color(s.on_surface_variant),
+            );
         });
     }
 
@@ -895,21 +988,13 @@ impl App {
     /// `hero` memperbesar kartu baris pertama: momen editorial khas Expressive.
     fn card_grid_sized(&mut self, ui: &mut Ui, items: &[Card], compact: bool, hero: bool) {
         let avail = ui.available_width();
-        let gap = 14.0;
-        let target = if hero {
-            if compact {
-                200.0
-            } else {
-                260.0
-            }
-        } else if compact {
-            132.0
-        } else {
-            164.0
-        };
+        let gap = 16.0;
+        let target = if compact { 128.0 } else { 172.0 };
+        let max_cols = if compact { 3 } else { 6 };
         let cols = (((avail + gap) / (target + gap)).floor() as usize)
-            .clamp(1, 7)
+            .clamp(1, max_cols)
             .min(items.len().max(1));
+        let _ = hero;
         let cw = ((avail - gap * (cols as f32 - 1.0)) / cols as f32).floor();
         for chunk in items.chunks(cols) {
             ui.horizontal(|ui| {
@@ -958,119 +1043,128 @@ impl App {
             return;
         }
         let s = self.scheme;
-        let screen = ctx.screen_rect();
-        let w = screen.width();
-        let h = screen.height();
-        let compact = w < 820.0;
-        let very_compact = w < 540.0;
-        let rail_wide = w >= 1120.0;
-        let dock = w >= 1000.0 && h >= 640.0;
+        let w = ctx.screen_rect().width();
+        // Breakpoint mengikuti YouTube Music: rail lebar >=1312, rail ikon di
+        // 800..1312, dan bilah tab di bawah untuk jendela sempit.
+        let mobile = w < 800.0;
+        let narrow = mobile || w < 1312.0;
+        let side_w = if mobile { 0.0 } else if w >= 1312.0 { 240.0 } else { 72.0 };
 
-        // ---- navigasi
-        if compact {
-            egui::TopBottomPanel::top("nav")
+        // ---- pemutar bawah, selebar jendela seperti YouTube Music
+        if self.current.is_some() {
+            egui::TopBottomPanel::bottom("bar")
+                .resizable(false)
+                .exact_height(76.0)
                 .frame(
                     egui::Frame::none()
                         .fill(s.surface_low)
-                        .inner_margin(egui::Margin::symmetric(10.0, 8.0)),
+                        .inner_margin(egui::Margin::symmetric(18.0, 10.0)),
+                )
+                .show(ctx, |ui| self.play_bar(ui, w));
+        }
+
+        // ---- bilah tab bawah (jendela sempit)
+        // ---- bilah tab bawah (mode sempit, seperti aplikasi YT Music)
+        if mobile {
+            egui::TopBottomPanel::bottom("tabbar")
+                .resizable(false)
+                .exact_height(54.0)
+                .frame(
+                    egui::Frame::none()
+                        .fill(s.surface_low)
+                        .inner_margin(egui::Margin::symmetric(4.0, 4.0)),
                 )
                 .show(ctx, |ui| {
                     ui.horizontal(|ui| {
-                        if !very_compact {
-                            ui.label(ts::title("swara", s.primary));
-                            ui.add_space(8.0);
-                        }
+                        let cw = ui.available_width() / 3.0;
                         for t in [Tab::Home, Tab::Cari, Tab::Koleksi] {
                             let active = self.tab == t;
-                            let r = self.nav_chip(ui, t, active, very_compact);
-                            if r.clicked() {
+                            let (rect, resp) = ui.allocate_exact_size(
+                                vec2(cw - 4.0, 44.0),
+                                Sense::click(),
+                            );
+                            let fg = if active { s.on_surface } else { s.on_surface_variant };
+                            draw_icon(
+                                ui.painter(),
+                                t.icon(),
+                                Rect::from_center_size(
+                                    pos2(rect.center().x, rect.center().y - 7.0),
+                                    vec2(20.0, 20.0),
+                                ),
+                                fg,
+                            );
+                            ui.painter().text(
+                                pos2(rect.center().x, rect.bottom() - 4.0),
+                                Align2::CENTER_BOTTOM,
+                                t.label(),
+                                FontId::proportional(10.0),
+                                fg,
+                            );
+                            if resp.clicked() {
                                 self.goto(t);
                             }
-                        }
-                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            if self.icon_button(ui, Icon::Theme, 34.0, Btn::Ghost).clicked() {
-                                self.scheme = theme::scheme(!s.dark, self.seed);
-                            }
-                        });
-                    });
-                });
-        } else {
-            let rail_w = if rail_wide { 200.0 } else { 84.0 };
-            egui::SidePanel::left("rail")
-                .resizable(false)
-                .exact_width(rail_w)
-                .frame(
-                    egui::Frame::none()
-                        .fill(s.surface_low)
-                        .inner_margin(egui::Margin::symmetric(10.0, 16.0)),
-                )
-                .show(ctx, |ui| {
-                    if rail_wide {
-                        ui.horizontal(|ui| {
-                            ui.add_space(4.0);
-                            ui.label(ts::headline("swara", s.primary));
-                        });
-                        ui.add_space(4.0);
-                        ui.label(ts::label("PEMUTAR MUSIK", s.on_surface_variant));
-                    } else {
-                        ui.vertical_centered(|ui| {
-                            ui.label(ts::headline("s", s.primary));
-                        });
-                    }
-                    ui.add_space(18.0);
-                    for t in [Tab::Home, Tab::Cari, Tab::Koleksi] {
-                        let active = self.tab == t;
-                        if self.rail_item(ui, t, active, rail_wide).clicked() {
-                            self.goto(t);
-                        }
-                        ui.add_space(6.0);
-                    }
-                    ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
-                        if self.icon_button(ui, Icon::Theme, 40.0, Btn::Ghost).clicked() {
-                            self.scheme = theme::scheme(!s.dark, self.seed);
                         }
                     });
                 });
         }
 
-        // ---- pemutar
-        if dock {
-            egui::SidePanel::right("dock")
+        // ---- sidebar kiri
+        if !mobile {
+            egui::SidePanel::left("nav")
                 .resizable(false)
-                .exact_width(if w >= 1240.0 { 344.0 } else { 312.0 })
+                .exact_width(side_w)
                 .frame(
                     egui::Frame::none()
                         .fill(s.surface)
-                        .inner_margin(egui::Margin::symmetric(18.0, 18.0)),
+                        .inner_margin(egui::Margin::symmetric(
+                            if w >= 1312.0 { 12.0 } else { 6.0 },
+                            10.0,
+                        )),
                 )
-                .show(ctx, |ui| self.dock_player(ui));
-        } else {
-            egui::TopBottomPanel::bottom("bar")
+                .show(ctx, |ui| self.side_nav(ui, w < 1312.0));
+
+        // ---- bilah atas: kolom cari + akun
+        egui::TopBottomPanel::top("top")
+            .resizable(false)
+            .exact_height(if mobile { 56.0 } else { 64.0 })
+            .frame(
+                egui::Frame::none().fill(s.surface).inner_margin(egui::Margin::symmetric(
+                    if mobile { 12.0 } else { 20.0 },
+                    12.0,
+                )),
+            )
+            .show(ctx, |ui| self.top_bar(ui));
+        }
+
+        // ---- panel antrean / lirik
+        if self.show_queue {
+            let qw = if w >= 1320.0 {
+                384.0
+            } else if w >= 900.0 {
+                320.0
+            } else {
+                (w - 44.0).max(220.0)
+            };
+            egui::SidePanel::right("queue")
+                .resizable(false)
+                .exact_width(qw)
                 .frame(
                     egui::Frame::none()
-                        .fill(s.surface_high)
-                        .rounding(Rounding::same(shape::SHEET))
-                        .inner_margin(egui::Margin::symmetric(14.0, 10.0))
-                        .outer_margin(egui::Margin::symmetric(10.0, 10.0)),
+                        .fill(s.surface_low)
+                        .inner_margin(egui::Margin::symmetric(16.0, 12.0)),
                 )
-                .show(ctx, |ui| {
-                    let full = ui.max_rect();
-                    let hit = ui.interact(full, egui::Id::new("mini-expand"), Sense::click());
-                    self.mini_player(ui);
-                    if hit.clicked() && self.current.is_some() {
-                        self.expanded = true;
-                    }
-                });
+                .show(ctx, |ui| self.queue_panel(ui));
         }
 
         egui::CentralPanel::default()
             .frame(
-                egui::Frame::none()
-                    .fill(s.surface)
-                    .inner_margin(egui::Margin::symmetric(if compact { 16.0 } else { 26.0 }, 18.0)),
+                egui::Frame::none().fill(s.surface).inner_margin(egui::Margin::symmetric(
+                    if narrow { 14.0 } else { 24.0 },
+                    0.0,
+                )),
             )
             .show(ctx, |ui| match self.tab {
-                Tab::Home => self.tab_home(ui, compact),
+                Tab::Home => self.tab_home(ui, narrow),
                 Tab::Cari => self.tab_cari(ui),
                 Tab::Koleksi => self.tab_koleksi(ui),
             });
@@ -1106,107 +1200,332 @@ impl App {
         }
     }
 
-    fn nav_chip(&mut self, ui: &mut Ui, t: Tab, active: bool, icon_only: bool) -> Response {
+    /// Satu baris navigasi: ikon 20 px, label 14 px, pil radius 10 px saat aktif.
+    fn side_item(&mut self, ui: &mut Ui, t: Tab, active: bool, narrow: bool) -> Response {
         let s = self.scheme;
-        let label = if icon_only { "" } else { t.label() };
-        let w = if icon_only { 44.0 } else { 0.0 };
-        let (rect, resp) = ui.allocate_exact_size(
-            vec2(
-                if icon_only {
-                    w
-                } else {
-                    24.0 + label.chars().count() as f32 * 7.2
-                },
-                36.0,
-            ),
-            Sense::click(),
-        );
-        if active {
-            ui.painter().rect_filled(
-                rect,
-                Rounding::same(18.0),
-                s.secondary_container,
-            );
+        let w = ui.available_width();
+        let (rect, resp) = ui.allocate_exact_size(vec2(w, if narrow { 54.0 } else { 44.0 }), Sense::click());
+        let ind = if narrow {
+            Rect::from_center_size(rect.center(), vec2(52.0, 46.0))
         } else {
-            self.layer(ui, rect, 18.0, &resp, 0.07);
-        }
-        let fg = if active {
-            s.on_secondary_container
-        } else {
-            s.on_surface_variant
+            rect
         };
-        let icon_rect = Rect::from_center_size(
-            if icon_only {
-                rect.center()
-            } else {
-                pos2(rect.left() + 20.0, rect.center().y)
-            },
-            vec2(15.0, 15.0),
-        );
-        draw_icon(ui.painter(), t.icon(), icon_rect, fg);
-        if !icon_only {
-            ui.painter().text(
-                pos2(rect.left() + 32.0, rect.center().y),
-                Align2::LEFT_CENTER,
-                label,
-                FontId::proportional(13.0),
-                fg,
-            );
-        }
-        resp
-    }
-
-    fn rail_item(&mut self, ui: &mut Ui, t: Tab, active: bool, wide: bool) -> Response {
-        let s = self.scheme;
-        let width = ui.available_width();
-        let (rect, resp) = ui.allocate_exact_size(vec2(width, 54.0), Sense::click());
-        let ind = Rect::from_center_size(
-            pos2(rect.center().x, rect.center().y),
-            vec2(if wide { width - 8.0 } else { 56.0 }, 40.0),
-        );
         if active {
             ui.painter()
-                .rect_filled(ind, Rounding::same(20.0), s.secondary_container);
-        } else {
-            self.layer(ui, ind, 20.0, &resp, 0.07);
+                .rect_filled(ind, Rounding::same(10.0), s.surface_high);
+        } else if resp.hovered() {
+            ui.painter()
+                .rect_filled(ind, Rounding::same(10.0), s.on_surface.gamma_multiply(0.07));
         }
-        let fg = if active {
-            s.on_secondary_container
+        let fg = if active { s.on_surface } else { s.on_surface_variant };
+        if narrow {
+            draw_icon(
+                ui.painter(),
+                t.icon(),
+                Rect::from_center_size(ind.center(), vec2(21.0, 21.0)),
+                fg,
+            );
         } else {
-            s.on_surface_variant
-        };
-        let icon_rect = Rect::from_center_size(
-            if wide {
-                pos2(ind.left() + 24.0, ind.center().y)
-            } else {
-                pos2(ind.center().x, ind.center().y - 8.0)
-            },
-            vec2(16.0, 16.0),
-        );
-        draw_icon(ui.painter(), t.icon(), icon_rect, fg);
-        if wide {
+            draw_icon(
+                ui.painter(),
+                t.icon(),
+                Rect::from_center_size(pos2(ind.left() + 16.0, ind.center().y), vec2(20.0, 20.0)),
+                fg,
+            );
             ui.painter().text(
                 pos2(ind.left() + 44.0, ind.center().y),
                 Align2::LEFT_CENTER,
                 t.label(),
-                FontId::proportional(13.5),
+                FontId::proportional(14.0),
                 fg,
             );
-        } else {
-            ui.painter().text(
-                pos2(ind.center().x, ind.bottom() - 4.0),
-                Align2::CENTER_BOTTOM,
-                t.label(),
-                FontId::proportional(9.5),
-                fg,
-            );
+        }
+        if resp.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
         resp
     }
 
-    // ---- pemutar samping
+    fn side_nav(&mut self, ui: &mut Ui, narrow: bool) {
+        let s = self.scheme;
 
-    fn dock_player(&mut self, ui: &mut Ui) {
+        // logo: tombol putar merah + wordmark
+        let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::hover());
+        let cy = r.center().y;
+        ui.painter().circle_filled(
+            pos2(r.left() + 14.0, cy),
+            11.0,
+            Color32::from_rgb(238, 0, 51),
+        );
+        draw_icon(
+            ui.painter(),
+            Icon::Play,
+            Rect::from_center_size(pos2(r.left() + 14.0, cy), vec2(10.0, 10.0)),
+            Color32::WHITE,
+        );
+        if !narrow {
+            ui.painter().text(
+                pos2(r.left() + 33.0, cy),
+                Align2::LEFT_CENTER,
+                "swara",
+                FontId::proportional(19.0),
+                s.on_surface,
+            );
+        }
+        ui.add_space(4.0);
+
+        for t in [Tab::Home, Tab::Cari, Tab::Koleksi] {
+            let active = self.tab == t;
+            if self.side_item(ui, t, active, narrow).clicked() {
+                self.goto(t);
+            }
+            ui.add_space(2.0);
+        }
+
+        if !narrow {
+            ui.add_space(10.0);
+            let (line, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
+            ui.painter()
+                .rect_filled(line, Rounding::same(0.5), s.outline_variant);
+            ui.add_space(12.0);
+            ui.label(ts::label("PUSTAKA", s.on_surface_variant).size(10.5));
+            ui.add_space(4.0);
+            if self.lib_item(ui, "Lagu disukai").clicked() {
+                self.koleksi = None;
+                self.view = View::Collection;
+                self.tab = Tab::Koleksi;
+                self.worker.send(Job::Browse("FEmusic_liked_videos".into()));
+            }
+            if self.lib_item(ui, "Playlist saya").clicked() {
+                if self.logged.is_some() {
+                    self.tab = Tab::Koleksi;
+                    self.view = View::Feed;
+                    self.worker.send(Job::Library);
+                } else {
+                    self.toast("masuk dulu lewat sesi Chromium");
+                }
+            }
+        }
+
+        // kaki sidebar: akun + tema
+        ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
+            if self.icon_button(ui, Icon::Theme, 34.0, Btn::Ghost).clicked() {
+                self.scheme = theme::scheme(!s.dark, self.seed);
+            }
+            if !narrow {
+                ui.add_space(6.0);
+                let (rect, resp) =
+                    ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::click());
+                let ind = Rect::from_center_size(rect.center(), vec2(rect.width(), 36.0));
+                if resp.hovered() {
+                    ui.painter()
+                        .rect_filled(ind, Rounding::same(10.0), s.on_surface.gamma_multiply(0.07));
+                }
+                match self.logged.clone() {
+                    Some(name) => {
+                        ui.painter().circle_filled(
+                            pos2(ind.left() + 16.0, ind.center().y),
+                            13.0,
+                            s.primary_container,
+                        );
+                        let initial = name
+                            .chars()
+                            .next()
+                            .unwrap_or('?')
+                            .to_uppercase()
+                            .to_string();
+                        ui.painter().text(
+                            pos2(ind.left() + 16.0, ind.center().y),
+                            Align2::CENTER_CENTER,
+                            initial,
+                            FontId::proportional(12.5),
+                            s.on_primary_container,
+                        );
+                        ui.painter().text(
+                            pos2(ind.left() + 36.0, ind.center().y),
+                            Align2::LEFT_CENTER,
+                            short(&name, 18),
+                            FontId::proportional(13.0),
+                            s.on_surface,
+                        );
+                        if resp.clicked() {
+                            self.worker.send(Job::Logout);
+                            self.logged = None;
+                            self.toast("keluar dari akun");
+                        }
+                    }
+                    None => {
+                        ui.painter().circle_filled(
+                            pos2(ind.left() + 16.0, ind.center().y),
+                            13.0,
+                            s.surface_highest,
+                        );
+                        ui.painter().text(
+                            pos2(ind.left() + 16.0, ind.center().y),
+                            Align2::CENTER_CENTER,
+                            "?",
+                            FontId::proportional(12.5),
+                            s.on_surface_variant,
+                        );
+                        ui.painter().text(
+                            pos2(ind.left() + 36.0, ind.center().y),
+                            Align2::LEFT_CENTER,
+                            "Masuk",
+                            FontId::proportional(13.0),
+                            s.on_surface,
+                        );
+                        if resp.clicked() {
+                            self.toast("menyambung sesi Chromium…");
+                            self.worker.send(Job::Login);
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    fn lib_item(&mut self, ui: &mut Ui, label: &str) -> Response {
+        let s = self.scheme;
+        let (rect, resp) =
+            ui.allocate_exact_size(vec2(ui.available_width(), 38.0), Sense::click());
+        if resp.hovered() {
+            ui.painter()
+                .rect_filled(rect, Rounding::same(10.0), s.on_surface.gamma_multiply(0.06));
+        }
+        draw_icon(
+            ui.painter(),
+            Icon::Library,
+            Rect::from_center_size(pos2(rect.left() + 16.0, rect.center().y), vec2(17.0, 17.0)),
+            s.on_surface_variant,
+        );
+        ui.painter().text(
+            pos2(rect.left() + 36.0, rect.center().y),
+            Align2::LEFT_CENTER,
+            label,
+            FontId::proportional(13.0),
+            s.on_surface,
+        );
+        resp
+    }
+
+    /// Bilah atas: kolom cari membulat penuh di kiri, ikon di kanan.
+    fn top_bar(&mut self, ui: &mut Ui) {
+        let s = self.scheme;
+        let compact = ui.available_width() < 700.0;
+        let mut submit = false;
+        ui.horizontal(|ui| {
+            let field_w = (ui.available_width() - if compact { 110.0 } else { 210.0 })
+                .clamp(150.0, 480.0);
+            let (rect, _) = ui.allocate_exact_size(vec2(field_w, 40.0), Sense::hover());
+            ui.painter()
+                .rect_filled(rect, Rounding::same(20.0), s.surface_high);
+            draw_icon(
+                ui.painter(),
+                Icon::Search,
+                Rect::from_center_size(pos2(rect.left() + 22.0, rect.center().y), vec2(18.0, 18.0)),
+                s.on_surface_variant,
+            );
+            let te_rect = Rect::from_min_max(
+                pos2(rect.left() + 38.0, rect.top() + 10.0),
+                pos2(rect.right() - 14.0, rect.bottom() - 10.0),
+            );
+            let te = egui::TextEdit::singleline(&mut self.query)
+                .frame(false)
+                .hint_text(
+                    RichText::new("Cari lagu, album, artis")
+                        .size(13.5)
+                        .color(s.on_surface_variant),
+                )
+                .margin(vec2(0.0, 0.0));
+            let resp = ui.put(te_rect, te);
+            if self.focus_cari {
+                resp.request_focus();
+                self.focus_cari = false;
+            }
+            if resp.changed() {
+                self.suggest_at = Some(Instant::now());
+                self.show_suggest = true;
+            }
+            if resp.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                submit = true;
+            }
+
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                let logged = self.logged.clone();
+                let (av, avr) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
+                ui.painter().circle_filled(av.center(), 15.0, s.surface_highest);
+                let initial = logged
+                    .as_ref()
+                    .map(|n| n.chars().next().unwrap_or('?').to_uppercase().to_string())
+                    .unwrap_or_else(|| "?".into());
+                ui.painter().text(
+                    av.center(),
+                    Align2::CENTER_CENTER,
+                    initial,
+                    FontId::proportional(13.0),
+                    if logged.is_some() {
+                        s.on_surface
+                    } else {
+                        s.on_surface_variant
+                    },
+                );
+                if avr.clicked() {
+                    match logged {
+                        Some(_) => {
+                            self.worker.send(Job::Logout);
+                            self.logged = None;
+                            self.toast("keluar dari akun");
+                        }
+                        None => {
+                            self.toast("menyambung sesi Chromium…");
+                            self.worker.send(Job::Login);
+                        }
+                    }
+                }
+                ui.add_space(4.0);
+                if self.icon_button(ui, Icon::Theme, 34.0, Btn::Ghost).clicked() {
+                    self.scheme = theme::scheme(!s.dark, self.seed);
+                }
+                let qbtn = self.icon_button(ui, Icon::Queue, 34.0, Btn::Ghost);
+                if qbtn.clicked() {
+                    self.show_queue = !self.show_queue;
+                }
+            });
+        });
+
+        if let Some(at) = self.suggest_at {
+            if at.elapsed() > Duration::from_millis(240) && !self.query.is_empty() {
+                self.worker.send(Job::Suggest(self.query.clone()));
+                self.suggest_at = None;
+            }
+        }
+        if submit && !self.query.is_empty() {
+            self.searched = self.query.clone();
+            self.show_suggest = false;
+            self.results.clear();
+            self.last_error = None;
+            self.tab = Tab::Cari;
+            self.worker.send(Job::Search(self.query.clone()));
+        }
+    }
+
+    fn bar_icon(&mut self, ui: &mut Ui, icon: Icon, rect: Rect, id: &str) -> bool {
+        let s = self.scheme;
+        let resp = ui.interact(rect, egui::Id::new(id), Sense::click());
+        if resp.hovered() {
+            ui.painter()
+                .circle_filled(rect.center(), rect.width() * 0.52, s.on_surface.gamma_multiply(0.08));
+        }
+        draw_icon(ui.painter(), icon, rect.shrink(5.0), s.on_surface_variant);
+        if resp.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        resp.clicked()
+    }
+
+    /// Pemutar bawah: kontrol rapat di kiri, info lagu tepat di tengah,
+    /// ikon sekunder berderet dari kanan — susunan yang sama dengan YT Music.
+    fn play_bar(&mut self, ui: &mut Ui, win_w: f32) {
         let s = self.scheme;
         let track = self.current.clone();
         let dur = self
@@ -1217,87 +1536,147 @@ impl App {
             .or_else(|| track.as_ref().map(|t| t.secs))
             .unwrap_or(0.0);
         let cover = self.cover_of();
+        let w = ui.available_width();
+        let (rect, _) = ui.allocate_exact_size(vec2(w, 56.0), Sense::hover());
+        let mid = rect.center().y;
+        let left = rect.left();
 
-        let side = ui.available_width().min(ui.available_height() * 0.46).min(300.0);
-        let url = track.as_ref().map(|t| t.thumb.clone()).unwrap_or_default();
-        let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), side), Sense::hover());
-        let art = Rect::from_center_size(rect.center(), vec2(side, side));
+        // garis durasi tipis di tepi atas bar
+        let tr = Rect::from_min_max(
+            pos2(left, rect.top() - 9.0),
+            pos2(rect.right(), rect.top() - 6.0),
+        );
         ui.painter()
-            .rect_filled(art, Rounding::same(shape::SHEET), s.surface_high);
+            .rect_filled(tr, Rounding::same(1.5), s.outline_variant);
+        let pos_now = self.drag_pos.unwrap_or(self.progress.pos);
+        if dur > 0.0 {
+            let f = (pos_now / dur).clamp(0.0, 1.0) as f32;
+            ui.painter().rect_filled(
+                Rect::from_min_max(tr.min, pos2(tr.left() + tr.width() * f, tr.max.y)),
+                Rounding::same(1.5),
+                s.on_surface,
+            );
+        }
+        let hit = ui.interact(
+            tr.expand2(vec2(0.0, 7.0)),
+            egui::Id::new("bar-seek"),
+            Sense::click(),
+        );
+        if hit.clicked() && dur > 0.0 {
+            if let Some(p) = hit.interact_pointer_pos() {
+                let f = ((p.x - tr.left()) / tr.width().max(1.0)).clamp(0.0, 1.0);
+                self.player.seek(f as f64 * dur);
+            }
+        }
+
+        // ---- kiri: prev / putar / next / waktu, jarak tetap 16 px
+        let cx = left + 20.0;
+        let prev = Rect::from_center_size(pos2(cx, mid), vec2(26.0, 26.0));
+        let play = Rect::from_center_size(pos2(cx + 52.0, mid), vec2(34.0, 34.0));
+        let nxt = Rect::from_center_size(pos2(cx + 104.0, mid), vec2(26.0, 26.0));
+
+        let prev_hit = ui.interact(prev.expand(6.0), egui::Id::new("pb-prev"), Sense::click());
+        if prev_hit.hovered() {
+            ui.painter()
+                .circle_filled(prev.center(), 20.0, s.on_surface.gamma_multiply(0.08));
+        }
+        draw_icon(ui.painter(), Icon::Prev, prev, s.on_surface);
+        if prev_hit.clicked() {
+            self.next_track(-1);
+        }
+
+        let play_hit = ui.interact(play.expand(6.0), egui::Id::new("pb-play"), Sense::click());
+        if play_hit.hovered() {
+            ui.painter()
+                .circle_filled(play.center(), 22.0, s.on_surface.gamma_multiply(0.08));
+        }
+        draw_icon(
+            ui.painter(),
+            if self.progress.playing {
+                Icon::Pause
+            } else {
+                Icon::Play
+            },
+            play.shrink(3.0),
+            s.on_surface,
+        );
+        if play_hit.clicked() {
+            self.toggle_play();
+        }
+
+        let next_hit = ui.interact(nxt.expand(6.0), egui::Id::new("pb-next"), Sense::click());
+        if next_hit.hovered() {
+            ui.painter()
+                .circle_filled(nxt.center(), 20.0, s.on_surface.gamma_multiply(0.08));
+        }
+        draw_icon(ui.painter(), Icon::Next, nxt, s.on_surface);
+        if next_hit.clicked() {
+            self.next_track(1);
+        }
+
+        if win_w >= 720.0 {
+            ui.painter().text(
+                pos2(nxt.right() + 20.0, mid),
+                Align2::LEFT_CENTER,
+                format!("{} / {}", fmt_time(pos_now), fmt_time(dur)),
+                FontId::proportional(11.5),
+                s.on_surface_variant,
+            );
+        }
+
+        // ---- tengah: sampul + judul + artis, tepat di tengah jendela
+        let roomy = win_w >= 980.0;
+        let text_w = if roomy { 190.0 } else { 130.0 };
+        let group_w = 40.0 + 12.0 + text_w;
+        let art = Rect::from_center_size(
+            pos2(rect.center().x - group_w / 2.0 + 20.0, mid),
+            vec2(40.0, 40.0),
+        );
+        ui.painter().rect_filled(art, Rounding::same(4.0), s.surface_high);
         if let Some(t) = cover {
             egui::Image::new((t.id(), t.size_vec2()))
-                .fit_to_exact_size(vec2(side, side))
-                .rounding(Rounding::same(shape::SHEET))
+                .fit_to_exact_size(vec2(40.0, 40.0))
+                .rounding(Rounding::same(4.0))
                 .paint_at(ui, art);
-        } else if !url.is_empty() {
-            let tt = ui.input(|i| i.time) as f32;
-            let a = 0.16 + 0.16 * (tt * 1.7).sin().abs();
-            ui.painter()
-                .circle_filled(art.center(), side * 0.04, s.on_surface.gamma_multiply(a));
         }
-
-        ui.add_space(16.0);
+        let tx = art.right() + 12.0;
+        let chars = (text_w / 7.0).max(8.0) as usize;
         let (title, artist) = match &track {
             Some(t) => (t.title.clone(), t.artist.clone()),
-            None => ("Belum ada lagu".into(), "Pilih dari beranda".into()),
+            None => ("Belum ada lagu".into(), String::new()),
         };
-        ui.label(ts::headline(short(&title, 34), s.on_surface));
-        ui.label(ts::body(short(&artist, 40), s.on_surface_variant));
+        ui.painter().text(
+            pos2(tx, mid - 9.0),
+            Align2::LEFT_CENTER,
+            short(&title, chars),
+            FontId::proportional(13.0),
+            s.on_surface,
+        );
+        ui.painter().text(
+            pos2(tx, mid + 9.0),
+            Align2::LEFT_CENTER,
+            short(&artist, chars),
+            FontId::proportional(11.5),
+            s.on_surface_variant,
+        );
 
-        ui.add_space(12.0);
-        let w = ui.available_width();
-        if let Some(v) = self.seek_bar(ui, dur, w) {
-            self.player.seek(v);
-        }
-        ui.horizontal(|ui| {
-            ui.label(ts::label(fmt_time(self.progress.pos), s.on_surface_variant));
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.label(ts::label(fmt_time(dur), s.on_surface_variant));
-            });
-        });
-
-        ui.add_space(14.0);
-        let icon = if self.progress.playing {
-            Icon::Pause
-        } else {
-            Icon::Play
-        };
-        let mut act = 0i8;
-        ui.columns(3, |cols| {
-            cols[0].vertical_centered(|ui| {
-                if self.icon_button(ui, Icon::Prev, 46.0, Btn::Tonal).clicked() {
-                    act = -1;
-                }
-            });
-            cols[1].vertical_centered(|ui| {
-                if self.icon_button(ui, icon, 64.0, Btn::Filled).clicked() {
-                    act = 2;
-                }
-            });
-            cols[2].vertical_centered(|ui| {
-                if self.icon_button(ui, Icon::Next, 46.0, Btn::Tonal).clicked() {
-                    act = 1;
-                }
-            });
-        });
-        match act {
-            -1 => self.next_track(-1),
-            1 => self.next_track(1),
-            2 => self.toggle_play(),
-            _ => {}
-        }
-
-
-        ui.add_space(14.0);
-        ui.horizontal(|ui| {
-            if self.chip(ui, "Lirik", self.show_lyrics).clicked() {
-                self.show_lyrics = !self.show_lyrics;
+        if roomy {
+            let like = Rect::from_center_size(
+                pos2(rect.center().x + group_w / 2.0 + 24.0, mid),
+                vec2(24.0, 24.0),
+            );
+            let lh = ui.interact(like.expand(6.0), egui::Id::new("pb-like"), Sense::click());
+            if lh.hovered() {
+                ui.painter()
+                    .circle_filled(like.center(), 18.0, s.on_surface.gamma_multiply(0.08));
             }
-            if self.chip(ui, "Suka", false).clicked() {
+            draw_icon(ui.painter(), Icon::Like, like, s.on_surface_variant);
+            if lh.clicked() {
                 match self.current.as_ref().map(|t| t.id.clone()) {
                     Some(id) => {
                         if self.logged.is_some() {
                             self.worker.send(Job::Rate(id, true));
+                            self.toast("disukai");
                         } else {
                             self.toast("masuk dulu lewat sesi Chromium");
                         }
@@ -1305,88 +1684,162 @@ impl App {
                     None => self.toast("belum ada lagu"),
                 }
             }
-        });
-        if self.show_lyrics {
-            ui.add_space(8.0);
-            self.lyrics_view(ui, 200.0);
         }
-    }
 
-    // ---- pemutar bawah
+        // ---- kanan: satu deret, jarak 16 px, margin 20 px
+        let mut rx = rect.right() - 20.0;
+        let mut slot = |name: &str| -> Rect {
+            let r = Rect::from_center_size(pos2(rx - 12.0, mid), vec2(24.0, 24.0));
+            rx -= 40.0;
+            let _ = name;
+            r
+        };
+        let up = slot("up");
+        let shuf = slot("shuf");
+        let rep = slot("rep");
+        let que = slot("que");
+        let lyr = slot("lyr");
+        let vol = slot("vol");
 
-    fn mini_player(&mut self, ui: &mut Ui) {
-        let s = self.scheme;
-        let track = self.current.clone();
-        let dur = self
-            .current_info
-            .as_ref()
-            .map(|i| i.dur)
-            .filter(|d| *d > 0.0)
-            .or_else(|| track.as_ref().map(|t| t.secs))
-            .unwrap_or(0.0);
-        let narrow = ui.available_width() < 400.0;
-        let cover = self.cover_of();
-
-        ui.horizontal(|ui| {
-            let side = if narrow { 38.0 } else { 44.0 };
-            let url = track.as_ref().map(|t| t.thumb.clone()).unwrap_or_default();
-            let (rect, _) = ui.allocate_exact_size(vec2(side, side), Sense::hover());
-            ui.painter()
-                .rect_filled(rect, Rounding::same(12.0), s.surface_highest);
-            if let Some(t) = cover {
-                egui::Image::new((t.id(), t.size_vec2()))
-                    .fit_to_exact_size(vec2(side, side))
-                    .rounding(Rounding::same(12.0))
-                    .paint_at(ui, rect);
+        let mut bar_btn = |ui: &mut Ui, icon: Icon, r: Rect, id: &str, on: bool, me: &mut App| -> bool {
+            let resp = ui.interact(r.expand(8.0), egui::Id::new(id), Sense::click());
+            if resp.hovered() {
+                ui.painter()
+                    .circle_filled(r.center(), 18.0, me.scheme.on_surface.gamma_multiply(0.08));
             }
-            ui.add_space(10.0);
-            ui.vertical(|ui| {
-                ui.spacing_mut().item_spacing.y = 1.0;
-                let title = track
-                    .as_ref()
-                    .map(|t| t.title.clone())
-                    .unwrap_or_else(|| "Belum ada lagu".into());
-                let artist = track
-                    .as_ref()
-                    .map(|t| t.artist.clone())
-                    .unwrap_or_default();
-                ui.label(ts::title_m(short(&title, if narrow { 22 } else { 40 }), s.on_surface).size(13.5));
-                if !artist.is_empty() {
-                    ui.label(ts::body_s(short(&artist, if narrow { 24 } else { 46 }), s.on_surface_variant));
-                }
-            });
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                let icon = if self.progress.playing {
-                    Icon::Pause
+            draw_icon(
+                ui.painter(),
+                icon,
+                r,
+                if on {
+                    me.scheme.primary
                 } else {
-                    Icon::Play
-                };
-                if self.icon_button(ui, icon, 40.0, Btn::Filled).clicked() {
-                    self.toggle_play();
-                }
-                ui.add_space(2.0);
-                if self.icon_button(ui, Icon::Next, 34.0, Btn::Ghost).clicked() {
-                    self.next_track(1);
-                }
-                if self.icon_button(ui, Icon::ChevronUp, 30.0, Btn::Ghost).clicked() {
-                    self.expanded = true;
-                }
-            });
-        });
-        if !narrow && dur > 0.0 {
-            ui.add_space(2.0);
-            ui.horizontal(|ui| {
-                ui.label(ts::label(fmt_time(self.progress.pos), s.on_surface_variant).size(10.5));
-                let w = ui.available_width() - 46.0;
-                if let Some(v) = self.seek_bar(ui, dur, w) {
-                    self.player.seek(v);
-                }
-                ui.label(ts::label(fmt_time(dur), s.on_surface_variant).size(10.5));
-            });
+                    me.scheme.on_surface_variant
+                },
+            );
+            resp.clicked()
+        };
+
+        if bar_btn(ui, Icon::ChevronUp, up, "pb-up", false, self) {
+            self.expanded = true;
+        }
+        if win_w >= 860.0 && bar_btn(ui, Icon::Shuffle, shuf, "pb-shuf", false, self) {
+            self.shuffle_queue();
+        }
+        if win_w >= 860.0 && bar_btn(ui, Icon::Repeat, rep, "pb-rep", false, self) {
+            self.toast("antrean berputar otomatis di ujung");
+        }
+        if bar_btn(ui, Icon::Queue, que, "pb-queue", self.show_queue && !self.show_lyrics, self) {
+            self.show_queue = !self.show_queue;
+            self.show_lyrics = false;
+        }
+        if bar_btn(ui, Icon::Lyrics, lyr, "pb-lyr", self.show_queue && self.show_lyrics, self) {
+            self.show_queue = true;
+            self.show_lyrics = true;
+        }
+        if win_w >= 860.0 && bar_btn(ui, Icon::Volume, vol, "pb-vol", false, self) {
+            let v = self.progress.volume;
+            self.player.set_volume(if v > 0.01 { 0.0 } else { 0.8 });
         }
     }
 
-    // ---- pemutar penuh (klik bar bawah untuk membuka)
+    fn shuffle_queue(&mut self) {
+        let n = self.queue.len();
+        if n < 2 {
+            self.toast("antrean terlalu pendek untuk diacak");
+            return;
+        }
+        let mut seed = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(0x9E3779B9);
+        for i in (1..n).rev() {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            let j = (seed >> 33) as usize % (i + 1);
+            self.queue.swap(i, j);
+        }
+        self.toast("antrean diacak");
+    }
+
+    /// Panel kanan: antrean atau lirik, dengan tab bergaris bawah.
+    fn queue_panel(&mut self, ui: &mut Ui) {
+        let s = self.scheme;
+        ui.add_space(2.0);
+        ui.horizontal(|ui| {
+            for (lbl, lyr) in [("BERIKUTNYA", false), ("LIRIK", true)] {
+                let sel = self.show_lyrics == lyr;
+                let wid = 96.0;
+                let (rect, resp) = ui.allocate_exact_size(vec2(wid, 30.0), Sense::click());
+                ui.painter().text(
+                    pos2(rect.center().x, rect.center().y - 2.0),
+                    Align2::CENTER_CENTER,
+                    lbl,
+                    FontId::proportional(11.0),
+                    if sel { s.on_surface } else { s.on_surface_variant },
+                );
+                if sel {
+                    ui.painter().rect_filled(
+                        Rect::from_min_size(pos2(rect.left() + 10.0, rect.bottom() - 3.0), vec2(wid - 20.0, 2.0)),
+                        Rounding::same(1.0),
+                        s.on_surface,
+                    );
+                }
+                if resp.clicked() {
+                    self.show_lyrics = lyr;
+                }
+            }
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if self.icon_button(ui, Icon::More, 28.0, Btn::Ghost).clicked() {
+                    self.show_queue = false;
+                }
+            });
+        });
+        let (line, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
+        ui.painter()
+            .rect_filled(line, Rounding::same(0.5), s.outline_variant);
+        ui.add_space(10.0);
+
+        if self.show_lyrics {
+            let h = ui.available_height();
+            self.lyrics_view(ui, h);
+            return;
+        }
+
+        ui.label(ts::body_s("Diputar dari", s.on_surface_variant));
+        let from = self
+            .current
+            .as_ref()
+            .map(|t| format!("Radio {}", short(&t.title, 22)))
+            .unwrap_or_else(|| "Antrean".into());
+        ui.label(ts::title_m(from, s.on_surface).size(14.0));
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            if self.chip(ui, "Semua", true).clicked() {}
+            if self.chip(ui, "Berikutnya", false).clicked() {
+                ui.ctx().request_repaint();
+            }
+        });
+        ui.add_space(6.0);
+        let queue = self.queue.clone();
+        let cur = self.current.clone();
+        ScrollArea::vertical()
+            .id_salt("qrows")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                if let Some(t) = cur.as_ref() {
+                    self.track_row(ui, t, 0, false);
+                }
+                for (i, t) in queue.iter().enumerate() {
+                    if self.track_row(ui, t, i + 1, false) {
+                        let q = queue.clone();
+                        self.play_track(t.clone(), Some(q));
+                    }
+                }
+                ui.add_space(16.0);
+            });
+    }
+
+    // ---- pemutar penuh (klik chevron di bar bawah)
 
     fn now_playing(&mut self, ctx: &egui::Context) {
         let s = self.scheme;
@@ -1399,97 +1852,214 @@ impl App {
             .or_else(|| track.as_ref().map(|t| t.secs))
             .unwrap_or(0.0);
         let cover = self.cover_of();
+        let w = ctx.screen_rect().width();
+        let split = w >= 900.0;
 
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::none()
                     .fill(s.surface)
-                    .inner_margin(egui::Margin::symmetric(24.0, 14.0)),
+                    .inner_margin(egui::Margin::symmetric(24.0, 12.0)),
             )
             .show(ctx, |ui| {
+                // kepala: turun ke beranda + pemilih panel
                 ui.horizontal(|ui| {
-                    if self.icon_button(ui, Icon::ChevronDown, 38.0, Btn::Ghost).clicked() {
+                    if self.icon_button(ui, Icon::ChevronDown, 36.0, Btn::Ghost).clicked() {
                         self.expanded = false;
                     }
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.label(ts::label("SEDANG DIPUTAR", s.on_surface_variant));
+                        if self.chip(ui, "Lirik", self.show_lyrics).clicked() {
+                            self.show_lyrics = !self.show_lyrics;
+                        }
+                        if self.chip(ui, "Antrean", !self.show_lyrics).clicked() {
+                            self.show_lyrics = false;
+                        }
                     });
                 });
-
-                let w = ui.available_width();
-                let h = ui.available_height();
-                let side = (w * 0.34).min(h * 0.52).clamp(110.0, 340.0);
                 ui.add_space(6.0);
-                let (rect, _) = ui.allocate_exact_size(vec2(w, side), Sense::hover());
-                let art = Rect::from_center_size(rect.center(), vec2(side, side));
-                ui.painter()
-                    .rect_filled(art, Rounding::same(30.0), s.surface_high);
-                if let Some(t) = cover {
-                    egui::Image::new((t.id(), t.size_vec2()))
-                        .fit_to_exact_size(vec2(side, side))
-                        .rounding(Rounding::same(30.0))
-                        .paint_at(ui, art);
-                }
 
-                ui.add_space(12.0);
-                let (title, artist) = match &track {
-                    Some(t) => (t.title.clone(), t.artist.clone()),
-                    None => ("Belum ada lagu".into(), "Pilih dari beranda".into()),
-                };
-                ui.vertical_centered(|ui| {
-                    ui.label(ts::headline(short(&title, 46), s.on_surface));
-                    ui.label(ts::body(short(&artist, 52), s.on_surface_variant));
-                });
-
-                ui.add_space(10.0);
-                if let Some(v) = self.seek_bar(ui, dur, w) {
-                    self.player.seek(v);
-                }
-                ui.horizontal(|ui| {
-                    ui.label(ts::label(fmt_time(self.progress.pos), s.on_surface_variant));
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.label(ts::label(fmt_time(dur), s.on_surface_variant));
+                if split {
+                    let total_w = ui.available_width();
+                    let total_h = ui.available_height();
+                    ui.horizontal_top(|ui| {
+                        let side = (total_h - 210.0).clamp(150.0, total_w * 0.46).min(400.0);
+                        ui.vertical(|ui| {
+                            ui.set_width(side);
+                            self.big_art(ui, side, cover.clone());
+                            ui.add_space(16.0);
+                            self.player_body(ui, &track, dur);
+                        });
+                        ui.add_space(28.0);
+                        ui.vertical(|ui| {
+                            ui.set_width((total_w - side - 28.0).max(240.0));
+                            self.side_panel_body(ui, total_h - 12.0);
+                        });
                     });
-                });
-
-                ui.add_space(8.0);
-                let icon = if self.progress.playing {
-                    Icon::Pause
                 } else {
-                    Icon::Play
-                };
-                let mut act = 0i8;
-                ui.columns(3, |cols| {
-                    cols[0].vertical_centered(|ui| {
-                        if self.icon_button(ui, Icon::Prev, 52.0, Btn::Tonal).clicked() {
-                            act = -1;
-                        }
-                    });
-                    cols[1].vertical_centered(|ui| {
-                        if self.icon_button(ui, icon, 72.0, Btn::Filled).clicked() {
-                            act = 2;
-                        }
-                    });
-                    cols[2].vertical_centered(|ui| {
-                        if self.icon_button(ui, Icon::Next, 52.0, Btn::Tonal).clicked() {
-                            act = 1;
-                        }
-                    });
-                });
-                match act {
-                    -1 => self.next_track(-1),
-                    1 => self.next_track(1),
-                    2 => self.toggle_play(),
-                    _ => {}
-                }
-
-
-                ui.add_space(12.0);
-                let rest = ui.available_height();
-                if rest > 54.0 {
-                    self.lyrics_view(ui, rest - 6.0);
+                    let side = (ui.available_width() * 0.62)
+                        .min(ui.available_height() * 0.40)
+                        .clamp(120.0, 320.0);
+                    ui.vertical_centered(|ui| self.big_art(ui, side, cover.clone()));
+                    ui.add_space(12.0);
+                    self.player_body(ui, &track, dur);
+                    ui.add_space(12.0);
+                    let rest = ui.available_height();
+                    if rest > 80.0 {
+                        self.side_panel_body(ui, rest - 8.0);
+                    }
                 }
             });
+    }
+
+    /// Isi panel kanan pada pemutar penuh: antrean atau lirik.
+    fn side_panel_body(&mut self, ui: &mut Ui, max_h: f32) {
+        let s = self.scheme;
+        if self.show_lyrics {
+            self.lyrics_view(ui, max_h);
+            return;
+        }
+        let queue = self.queue.clone();
+        let cur = self.current.clone();
+        ScrollArea::vertical()
+            .id_salt("np-queue")
+            .max_height(max_h)
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.label(ts::label("BERIKUTNYA", s.on_surface_variant).size(10.5));
+                ui.add_space(6.0);
+                if let Some(t) = cur.as_ref() {
+                    self.track_row(ui, t, 0, false);
+                }
+                for (i, t) in queue.iter().enumerate() {
+                    if self.track_row(ui, t, i + 1, false) {
+                        let q = queue.clone();
+                        self.play_track(t.clone(), Some(q));
+                    }
+                }
+                ui.add_space(16.0);
+            });
+    }
+
+    fn big_art(&mut self, ui: &mut Ui, side: f32, cover: Option<TextureHandle>) {
+        let s = self.scheme;
+        let (rect, _) = ui.allocate_exact_size(vec2(side, side), Sense::hover());
+        ui.painter().rect_filled(rect, Rounding::same(8.0), s.surface_high);
+        if let Some(t) = cover {
+            egui::Image::new((t.id(), t.size_vec2()))
+                .fit_to_exact_size(vec2(side, side))
+                .rounding(Rounding::same(8.0))
+                .paint_at(ui, rect);
+        }
+    }
+
+    fn player_body(&mut self, ui: &mut Ui, track: &Option<Track>, dur: f64) {
+        let s = self.scheme;
+        let w = ui.available_width();
+        let (title, artist) = match track {
+            Some(t) => (t.title.clone(), t.artist.clone()),
+            None => ("Belum ada lagu".into(), "Pilih dari beranda".into()),
+        };
+        let chars = (w / 9.0).max(10.0) as usize;
+        ui.label(
+            RichText::new(short(&title, chars))
+                .size(22.0)
+                .strong()
+                .color(s.on_surface),
+        );
+        ui.add_space(1.0);
+        ui.label(
+            RichText::new(short(&artist, chars))
+                .size(14.0)
+                .color(s.on_surface_variant),
+        );
+        ui.add_space(14.0);
+        if let Some(v) = self.seek_bar(ui, dur, w) {
+            self.player.seek(v);
+        }
+        ui.horizontal(|ui| {
+            ui.label(ts::label(fmt_time(self.progress.pos), s.on_surface_variant).size(11.5));
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.label(ts::label(fmt_time(dur), s.on_surface_variant).size(11.5));
+            });
+        });
+        ui.add_space(10.0);
+
+        let playing = self.progress.playing;
+        let mut act = 0i8;
+        // Satu baris dengan geometri mutlak supaya pusat ketiga tombol benar-benar
+        // sejajar, tidak bergantung pada cross-align layout egui.
+        let row_w = w.min(360.0);
+        let (row, _) = ui.allocate_exact_size(vec2(w, 64.0), Sense::hover());
+        let rmid = row.center().y;
+        let rcx = row.center().x;
+        let play = Rect::from_center_size(pos2(rcx, rmid), vec2(56.0, 56.0));
+        let prev = Rect::from_center_size(pos2(play.center().x - 62.0, rmid), vec2(26.0, 26.0));
+        let next = Rect::from_center_size(pos2(play.center().x + 62.0, rmid), vec2(26.0, 26.0));
+        let like = Rect::from_center_size(pos2(play.center().x + 128.0, rmid), vec2(24.0, 24.0));
+        let _ = row_w;
+
+        let ph = ui.interact(prev.expand(8.0), egui::Id::new("np-prev"), Sense::click());
+        if ph.hovered() {
+            ui.painter()
+                .circle_filled(prev.center(), 19.0, s.on_surface.gamma_multiply(0.08));
+        }
+        draw_icon(ui.painter(), Icon::Prev, prev, s.on_surface);
+        if ph.clicked() {
+            act = -1;
+        }
+
+        let pr_hit = ui.interact(play, egui::Id::new("np-play"), Sense::click());
+        let fill = if pr_hit.hovered() {
+            s.on_surface.gamma_multiply(0.88)
+        } else {
+            s.on_surface
+        };
+        ui.painter().circle_filled(play.center(), 28.0, fill);
+        draw_icon(
+            ui.painter(),
+            if playing { Icon::Pause } else { Icon::Play },
+            play.shrink(16.0),
+            s.surface,
+        );
+        if pr_hit.clicked() {
+            act = 2;
+        }
+
+        let nh = ui.interact(next.expand(8.0), egui::Id::new("np-next"), Sense::click());
+        if nh.hovered() {
+            ui.painter()
+                .circle_filled(next.center(), 19.0, s.on_surface.gamma_multiply(0.08));
+        }
+        draw_icon(ui.painter(), Icon::Next, next, s.on_surface);
+        if nh.clicked() {
+            act = 1;
+        }
+
+        let lh = ui.interact(like.expand(8.0), egui::Id::new("np-like"), Sense::click());
+        if lh.hovered() {
+            ui.painter()
+                .circle_filled(like.center(), 18.0, s.on_surface.gamma_multiply(0.08));
+        }
+        draw_icon(ui.painter(), Icon::Like, like, s.on_surface_variant);
+        if lh.clicked() {
+            match self.current.as_ref().map(|t| t.id.clone()) {
+                Some(id) => {
+                    if self.logged.is_some() {
+                        self.worker.send(Job::Rate(id, true));
+                        self.toast("disukai");
+                    } else {
+                        self.toast("masuk dulu lewat sesi Chromium");
+                    }
+                }
+                None => self.toast("belum ada lagu"),
+            }
+        }
+        match act {
+            -1 => self.next_track(-1),
+            1 => self.next_track(1),
+            2 => self.toggle_play(),
+            _ => {}
+        }
     }
 
     fn lyrics_view(&mut self, ui: &mut Ui, max_h: f32) {
@@ -1507,8 +2077,13 @@ impl App {
             ScrollArea::vertical()
                 .id_salt("lyr")
                 .max_height(max_h)
+                .auto_shrink([false, false])
                 .show(ui, |ui| {
-                    ui.label(ts::body_s(txt, s.on_surface_variant));
+                    ui.label(
+                        RichText::new(txt)
+                            .size(16.0)
+                            .color(s.on_surface_variant),
+                    );
                 });
             return;
         }
@@ -1523,15 +2098,18 @@ impl App {
             .id_salt("lyrsync")
             .max_height(max_h)
             .auto_shrink([false, false])
-            .vertical_scroll_offset(((active as f32) * 24.0 - max_h / 2.0).max(0.0))
+            .vertical_scroll_offset(((active as f32) * 34.0 - max_h / 2.0).max(0.0))
             .show(ui, |ui| {
                 for (i, line) in l.synced.iter().enumerate() {
                     let is_now = i == active;
+                    ui.add_space(2.0);
                     ui.label(
                         RichText::new(&line.text)
-                            .size(if is_now { 14.0 } else { 12.0 })
+                            .size(if is_now { 20.0 } else { 15.0 })
+                            .strong()
                             .color(if is_now { s.on_surface } else { s.on_surface_variant }),
                     );
+                    ui.add_space(2.0);
                 }
             });
     }
@@ -1556,18 +2134,72 @@ impl App {
             .id_salt("home")
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                for (i, row) in rows.iter().enumerate() {
-                    ui.add_space(if i == 0 { 2.0 } else { 10.0 });
-                    ui.label(if i == 0 {
-                        ts::headline(row.title.clone(), s.on_surface)
-                    } else {
-                        ts::title(row.title.clone(), s.on_surface)
+                ui.add_space(10.0);
+                // chip suasana, seperti baris mood di YouTube Music
+                ScrollArea::horizontal()
+                    .id_salt("moods")
+                    .auto_shrink([false, true])
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 8.0;
+                            for m in [
+                                "Semangat", "Santai", "Fokus", "Sedih", "Tidur", "Jalan",
+                                "Kerja", "Nongkrong",
+                            ] {
+                                if self.chip(ui, m, self.searched == m).clicked() {
+                                    self.query = m.to_string();
+                                    self.searched = m.to_string();
+                                    self.tab = Tab::Cari;
+                                    self.results.clear();
+                                    self.worker.send(Job::Search(m.to_string()));
+                                }
+                            }
+                        });
                     });
-                    ui.add_space(10.0);
-                    self.card_grid_sized(ui, &row.items, compact, i == 0);
-                    ui.add_space(6.0);
+
+                for (i, row) in rows.iter().enumerate() {
+                    ui.add_space(if i == 0 { 18.0 } else { 26.0 });
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new(&row.title)
+                                .size(if compact { 20.0 } else { 24.0 })
+                                .strong()
+                                .color(s.on_surface),
+                        );
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            if self.chip(ui, "Putar semua", true).clicked() {
+                                let q: Vec<Track> = row
+                                    .items
+                                    .iter()
+                                    .filter(|c| c.kind == "song")
+                                    .map(|c| Track {
+                                        id: c.id.clone(),
+                                        title: c.title.clone(),
+                                        artist: c.sub.split('•').next().unwrap_or("").trim().to_string(),
+                                        album: String::new(),
+                                        thumb: c.thumb.clone(),
+                                        dur: String::new(),
+                                        secs: 0.0,
+                                    })
+                                    .collect();
+                                match q.first().cloned() {
+                                    Some(first) => {
+                                        let all = q.clone();
+                                        self.play_track(first, Some(all));
+                                    }
+                                    None => {
+                                        if let Some(c) = row.items.first() {
+                                            self.open_card(c);
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                    });
+                    ui.add_space(12.0);
+                    self.card_grid_sized(ui, &row.items, compact, false);
                 }
-                ui.add_space(20.0);
+                ui.add_space(28.0);
             });
     }
 
@@ -1575,79 +2207,26 @@ impl App {
 
     fn tab_cari(&mut self, ui: &mut Ui) {
         let s = self.scheme;
-        let mut submit = false;
-        let field_w = ui.available_width().min(560.0);
-        egui::Frame::none()
-            .fill(s.surface_highest)
-            .rounding(Rounding::same(shape::FIELD))
-            .inner_margin(egui::Margin::symmetric(16.0, 10.0))
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    let (ir, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
-                    draw_icon(ui.painter(), Icon::Search, ir, s.on_surface_variant);
-                    ui.add_space(8.0);
-                    let te = egui::TextEdit::singleline(&mut self.query)
-                        .frame(false)
-                        .hint_text("Cari lagu, artis, album")
-                        .desired_width(field_w - 80.0)
-                        .margin(vec2(0.0, 2.0));
-                    let resp = ui.add(te);
-                    if self.focus_cari {
-                        resp.request_focus();
-                        self.focus_cari = false;
-                    }
-                    if resp.changed() {
-                        self.suggest_at = Some(Instant::now());
-                        self.show_suggest = true;
-                    }
-                    if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                        submit = true;
-                    }
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if !self.query.is_empty() && ui.button("Cari").clicked() {
-                            submit = true;
-                        }
-                    });
-                });
-            });
-
-        if let Some(at) = self.suggest_at {
-            if at.elapsed() > Duration::from_millis(240) && !self.query.is_empty() {
-                self.worker.send(Job::Suggest(self.query.clone()));
-                self.suggest_at = None;
-            }
-        }
-        if submit && !self.query.is_empty() {
-            self.searched = self.query.clone();
-            self.show_suggest = false;
-            self.results.clear();
-            self.last_error = None;
-            self.worker.send(Job::Search(self.query.clone()));
-        }
 
         if self.show_suggest && !self.suggest.is_empty() {
             let list = self.suggest.clone();
-            ui.add_space(6.0);
-            for sug in list {
-                let (rect, resp) = ui.allocate_exact_size(
-                    vec2(ui.available_width().min(field_w), 34.0),
-                    Sense::click(),
-                );
-                self.layer(ui, rect, 12.0, &resp, 0.07);
-                ui.painter().text(
-                    pos2(rect.left() + 12.0, rect.center().y),
-                    Align2::LEFT_CENTER,
-                    &sug,
-                    FontId::proportional(13.0),
-                    s.on_surface_variant,
-                );
-                if resp.clicked() {
-                    self.query = sug.clone();
-                    self.searched = sug.clone();
-                    self.show_suggest = false;
-                    self.worker.send(Job::Search(sug));
-                }
-            }
+            ui.add_space(10.0);
+            ScrollArea::horizontal()
+                .id_salt("sug")
+                .auto_shrink([false, true])
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 8.0;
+                        for sug in list {
+                            if self.chip(ui, &sug, false).clicked() {
+                                self.query = sug.clone();
+                                self.searched = sug.clone();
+                                self.show_suggest = false;
+                                self.worker.send(Job::Search(sug));
+                            }
+                        }
+                    });
+                });
         }
 
         ui.add_space(12.0);
@@ -1655,14 +2234,33 @@ impl App {
             if let Some(e) = self.last_error.clone() {
                 ui.label(ts::body(format!("Error: {e}"), s.on_surface_variant));
             } else if !self.searched.is_empty() && !self.show_suggest {
-                ui.label(ts::body("Tidak ada hasil", s.on_surface_variant));
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.add_space(6.0);
+                    ui.label(ts::body("Mencari…", s.on_surface_variant));
+                });
             } else {
-                ui.label(ts::body("Ketik judul lagu atau nama artis.", s.on_surface_variant));
+                ui.add_space(8.0);
+                ui.label(
+                    RichText::new("Cari di YouTube Music")
+                        .size(22.0)
+                        .strong()
+                        .color(s.on_surface),
+                );
+                ui.label(ts::body_s(
+                    "Ketik judul lagu atau nama artis di kolom atas.",
+                    s.on_surface_variant,
+                ));
             }
             return;
         }
-        ui.label(ts::title(format!("Hasil untuk “{}”", short(&self.searched, 32)), s.on_surface));
-        ui.add_space(6.0);
+        ui.label(
+            RichText::new(format!("Hasil untuk “{}”", short(&self.searched, 34)))
+                .size(22.0)
+                .strong()
+                .color(s.on_surface),
+        );
+        ui.add_space(8.0);
         let results = self.results.clone();
         ScrollArea::vertical()
             .id_salt("results")
@@ -1683,7 +2281,12 @@ impl App {
     fn tab_koleksi(&mut self, ui: &mut Ui) {
         let s = self.scheme;
         ui.horizontal(|ui| {
-            ui.label(ts::headline("Koleksi", s.on_surface));
+            ui.label(
+                RichText::new("Koleksi")
+                    .size(24.0)
+                    .strong()
+                    .color(s.on_surface),
+            );
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 match self.logged.clone() {
                     Some(name) => {
@@ -1834,6 +2437,7 @@ fn cover_seed(img: &image::DynamicImage) -> Option<[u8; 3]> {
 fn install_fonts(ctx: &egui::Context) {
     let mut fonts = FontDefinitions::default();
     let candidates = [
+        "/usr/share/fonts/roboto/Roboto[ital,wdth,wght].ttf",
         "/usr/share/fonts/noto/NotoSansCJK-Regular.ttc",
         "/usr/share/fonts/TTF/DejaVuSans.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
