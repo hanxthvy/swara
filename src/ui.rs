@@ -67,6 +67,7 @@ enum Icon {
     ChevronUp,
     Queue,
     Like,
+    Dislike,
     More,
     Shuffle,
     Repeat,
@@ -212,6 +213,19 @@ fn draw_icon(p: &egui::Painter, icon: Icon, r: Rect, c: Color32) {
                 pos2(m.x + s * 0.34, m.y + s * 0.34),
             ];
             p.add(Shape::convex_polygon(up, c, Stroke::NONE));
+        }
+        Icon::Dislike => {
+            let down = vec![
+                pos2(m.x - s * 0.34, m.y - s * 0.34),
+                pos2(m.x - s * 0.34, m.y + s * 0.02),
+                pos2(m.x - s * 0.10, m.y + s * 0.02),
+                pos2(m.x + s * 0.02, m.y + s * 0.36),
+                pos2(m.x + s * 0.16, m.y + s * 0.30),
+                pos2(m.x + s * 0.10, m.y + s * 0.02),
+                pos2(m.x + s * 0.34, m.y + s * 0.02),
+                pos2(m.x + s * 0.34, m.y - s * 0.34),
+            ];
+            p.add(Shape::convex_polygon(down, c, Stroke::NONE));
         }
         Icon::More => {
             for dx in [-0.24, 0.0, 0.24] {
@@ -711,25 +725,17 @@ impl App {
 
     fn chip(&self, ui: &mut Ui, label: &str, selected: bool) -> Response {
         let s = self.scheme;
-        let (bg, fg, stroke) = if selected {
-            (
-                s.secondary_container,
-                s.on_secondary_container,
-                Stroke::NONE,
-            )
+        let (bg, fg) = if selected {
+            (s.on_surface, s.surface)
         } else {
-            (
-                Color32::TRANSPARENT,
-                s.on_surface_variant,
-                Stroke::new(1.0_f32, s.outline_variant),
-            )
+            (s.surface_high, s.on_surface)
         };
         ui.add(
-            egui::Button::new(ts::title_m(label, fg).size(12.5))
+            egui::Button::new(ts::title_m(label, fg).size(13.0))
                 .fill(bg)
-                .stroke(stroke)
-                .rounding(Rounding::same(shape::CHIP))
-                .min_size(vec2(0.0, 34.0)),
+                .stroke(Stroke::NONE)
+                .rounding(Rounding::same(16.0))
+                .min_size(vec2(0.0, 32.0)),
         )
     }
 
@@ -969,7 +975,7 @@ impl App {
             let chars = (w / 6.6).max(8.0) as usize;
             ui.label(
                 RichText::new(short(&card.title, chars))
-                    .size(13.5)
+                    .size(14.0)
                     .color(s.on_surface),
             );
             ui.add_space(1.0);
@@ -1580,7 +1586,9 @@ impl App {
             ui.painter()
                 .circle_filled(prev.center(), 20.0, s.on_surface.gamma_multiply(0.08));
         }
-        draw_icon(ui.painter(), Icon::Prev, prev, s.on_surface);
+        if win_w >= 520.0 {
+            draw_icon(ui.painter(), Icon::Prev, prev, s.on_surface);
+        }
         if prev_hit.clicked() {
             self.next_track(-1);
         }
@@ -1609,7 +1617,9 @@ impl App {
             ui.painter()
                 .circle_filled(nxt.center(), 20.0, s.on_surface.gamma_multiply(0.08));
         }
-        draw_icon(ui.painter(), Icon::Next, nxt, s.on_surface);
+        if win_w >= 520.0 {
+            draw_icon(ui.painter(), Icon::Next, nxt, s.on_surface);
+        }
         if next_hit.clicked() {
             self.next_track(1);
         }
@@ -1661,6 +1671,29 @@ impl App {
         );
 
         if roomy {
+            let menu = Rect::from_center_size(
+                pos2(rect.center().x + group_w / 2.0 + 86.0, mid),
+                vec2(24.0, 24.0),
+            );
+            let mh = ui.interact(menu.expand(6.0), egui::Id::new("pb-more"), Sense::click());
+            if mh.hovered() {
+                ui.painter()
+                    .circle_filled(menu.center(), 18.0, s.on_surface.gamma_multiply(0.08));
+            }
+            draw_icon(ui.painter(), Icon::More, menu, s.on_surface_variant);
+            if mh.clicked() {
+                self.show_queue = !self.show_queue;
+            }
+            let dislike = Rect::from_center_size(
+                pos2(rect.center().x + group_w / 2.0 + 52.0, mid),
+                vec2(24.0, 24.0),
+            );
+            let dh = ui.interact(dislike.expand(6.0), egui::Id::new("pb-dislike"), Sense::click());
+            if dh.hovered() {
+                ui.painter()
+                    .circle_filled(dislike.center(), 18.0, s.on_surface.gamma_multiply(0.08));
+            }
+            draw_icon(ui.painter(), Icon::Dislike, dislike, s.on_surface_variant);
             let like = Rect::from_center_size(
                 pos2(rect.center().x + group_w / 2.0 + 24.0, mid),
                 vec2(24.0, 24.0),
@@ -2162,7 +2195,7 @@ impl App {
                     ui.horizontal(|ui| {
                         ui.label(
                             RichText::new(&row.title)
-                                .size(if compact { 20.0 } else { 24.0 })
+                                .size(if compact { 22.0 } else { 30.0 })
                                 .strong()
                                 .color(s.on_surface),
                         );
