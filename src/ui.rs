@@ -1644,10 +1644,15 @@ impl App {
         let roomy = win_w >= 980.0;
         let text_w = if roomy { 190.0 } else { 130.0 };
         let group_w = 40.0 + 12.0 + text_w;
-        let art = Rect::from_center_size(
-            pos2(rect.center().x - group_w / 2.0 + 20.0, mid),
-            vec2(40.0, 40.0),
-        );
+        let time_x = nxt.right() + 20.0;
+        let time_w = if win_w >= 720.0 { 66.0 } else { 0.0 };
+        let centered = rect.center().x - group_w / 2.0 + 20.0;
+        let art_left = if win_w >= 1180.0 {
+            centered
+        } else {
+            (time_x + time_w + 30.0).max(rect.left() + 8.0)
+        };
+        let art = Rect::from_center_size(pos2(art_left, mid), vec2(40.0, 40.0));
         ui.painter().rect_filled(art, Rounding::same(4.0), s.surface_high);
         if let Some(t) = cover {
             egui::Image::new((t.id(), t.size_vec2()))
@@ -2609,18 +2614,17 @@ impl eframe::App for App {
         let tick = if self.current.is_some() { 200 } else { 1000 };
         ctx.request_repaint_after(std::time::Duration::from_millis(tick));
 
-        // F / Esc berlaku walau kotak cari sedang fokus.
+        // Semua pintasan huruf diabaikan saat ada kolom teks yang fokus, jadi
+        // mengetik "f" di pencarian tidak lagi membuka pemutar penuh.
+        let typing = ctx.wants_keyboard_input() || ctx.memory(|m| m.focused().is_some());
         ctx.input(|i| {
-            if i.key_pressed(egui::Key::F) {
+            if !typing && i.key_pressed(egui::Key::F) {
                 self.expanded = !self.expanded;
             }
             if i.key_pressed(egui::Key::Escape) {
                 self.expanded = false;
             }
         });
-
-        // Pintasan papan ketik, diabaikan saat kotak cari sedang fokus.
-        let typing = ctx.memory(|m| m.focused().is_some());
         if !typing {
             let mut seek_delta = 0.0;
             let mut step = 0;
