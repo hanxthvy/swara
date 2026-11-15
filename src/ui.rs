@@ -315,6 +315,8 @@ pub struct App {
     lyrics_id: String,
     show_lyrics: bool,
     show_queue: bool,
+    /// Kolom cari sedang dipegang kursor ketik; pintasan huruf dimatikan.
+    search_focus: bool,
 
     queue: Vec<Track>,
     current: Option<Track>,
@@ -381,6 +383,7 @@ impl App {
             lyrics_id: String::new(),
             show_lyrics: false,
             show_queue: false,
+            search_focus: false,
             queue: Vec::new(),
             current: None,
             current_info: None,
@@ -1439,6 +1442,7 @@ impl App {
                 .frame(false)
                 .margin(vec2(0.0, 0.0));
             let resp = ui.put(te_rect, te);
+            self.search_focus = resp.has_focus();
             // placeholder digambar sendiri: hint bawaan TextEdit bisa terpotong
             // di kiri saat kolomnya sempit.
             if self.query.is_empty() && !resp.has_focus() {
@@ -2616,7 +2620,8 @@ impl eframe::App for App {
 
         // Semua pintasan huruf diabaikan saat ada kolom teks yang fokus, jadi
         // mengetik "f" di pencarian tidak lagi membuka pemutar penuh.
-        let typing = ctx.wants_keyboard_input() || ctx.memory(|m| m.focused().is_some());
+        let typing =
+            self.search_focus || ctx.wants_keyboard_input() || ctx.memory(|m| m.focused().is_some());
         ctx.input(|i| {
             if !typing && i.key_pressed(egui::Key::F) {
                 self.expanded = !self.expanded;
