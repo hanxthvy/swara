@@ -1,0 +1,60 @@
+# Resep paket .deb dan .rpm, dipakai nfpm di CI.
+# VERSION, ARCH, dan BIN diisi dari workflow.
+name: swara
+arch: ${ARCH}
+platform: linux
+version: ${VERSION}
+release: "1"
+section: sound
+priority: optional
+maintainer: Hanxthvy <104244105+hanxthvy@users.noreply.github.com>
+vendor: Hanxthvy
+homepage: https://github.com/hanxthvy/swara
+license: MIT
+provides: [swara]
+description: |
+  Pemutar musik YouTube Music native, satu binary tanpa browser.
+  Mencari, memutar, dan menampilkan lirik sinkron langsung dari
+  YouTube Music, serta terhubung ke panel sistem lewat MPRIS.
+
+overrides:
+  deb:
+    depends:
+      - libasound2
+  rpm:
+    depends:
+      - alsa-lib
+
+contents:
+  - src: dist/swara
+    dst: /usr/bin/swara
+    file_info:
+      mode: 0755
+  - src: packaging/swara.desktop
+    dst: /usr/share/applications/swara.desktop
+    file_info:
+      mode: 0644
+  - src: packaging/swara-32.png
+    dst: /usr/share/icons/hicolor/32x32/apps/swara.png
+  - src: packaging/swara-48.png
+    dst: /usr/share/icons/hicolor/48x48/apps/swara.png
+  - src: packaging/swara-64.png
+    dst: /usr/share/icons/hicolor/64x64/apps/swara.png
+  - src: packaging/swara-128.png
+    dst: /usr/share/icons/hicolor/128x128/apps/swara.png
+  - src: packaging/swara-256.png
+    dst: /usr/share/icons/hicolor/256x256/apps/swara.png
+  - src: packaging/swara-512.png
+    dst: /usr/share/icons/hicolor/512x512/apps/swara.png
+  - src: LICENSE
+    dst: /usr/share/doc/swara/copyright
+    file_info:
+      mode: 0644
+  - src: README.md
+    dst: /usr/share/doc/swara/README.md
+    file_info:
+      mode: 0644
+
+scripts:
+  postinstall: packaging/postinstall.sh
+  postremove: packaging/postremove.sh

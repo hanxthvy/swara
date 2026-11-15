@@ -86,6 +86,32 @@ jobs:
           (Get-FileHash "${{ matrix.asset }}" -Algorithm SHA256).Hash.ToLower() + "  ${{ matrix.asset }}" |
             Out-File -Encoding ascii "${{ matrix.asset }}.sha256"
 
+      - name: Paket .deb dan .rpm
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ver=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          arch=$(uname -m); [ "$arch" = "x86_64" ] && arch=amd64
+          curl -fsSL -o /tmp/nfpm.tgz \
+            https://github.com/goreleaser/nfpm/releases/download/v2.49.0/nfpm_2.49.0_Linux_x86_64.tar.gz
+          tar xzf /tmp/nfpm.tgz -C /tmp nfpm
+          mkdir -p dist && cp "target/${{ matrix.target }}/release/swara" dist/swara
+          VERSION="$ver" ARCH="$arch" /tmp/nfpm package -p deb -f packaging/nfpm.yaml -t .
+          VERSION="$ver" ARCH="$arch" /tmp/nfpm package -p rpm -f packaging/nfpm.yaml -t .
+          rm -rf dist
+          shasum -a 256 swara_*.deb swara-*.rpm > paket.sha256
+
+      - name: Unggah paket Linux
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        uses: actions/upload-artifact@v4
+        with:
+          name: paket-linux
+          path: |
+            swara_*.deb
+            swara-*.rpm
+            paket.sha256
+
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset }}
@@ -106,15 +132,21 @@ jobs:
 
       - name: Tulis catatan rilis
         run: |
+          versi="${GITHUB_REF_NAME#v}"
           {
             echo "Pemutar musik YouTube Music native, satu binary tanpa browser."
             echo
             echo "| platform | berkas |"
             echo "|---|---|"
             echo "| Linux x86_64 | swara-linux-x86_64.tar.gz |"
+            echo "| Linux Debian/Ubuntu | swara_\${versi}_amd64.deb |"
+            echo "| Linux Fedora/openSUSE | swara-\${versi}-1.x86_64.rpm |"
             echo "| Windows x86_64 | swara-windows-x86_64.zip |"
             echo "| macOS Apple Silicon | swara-macos-arm64.tar.gz |"
             echo "| macOS Intel | swara-macos-x86_64.tar.gz |"
+            echo
+            echo "Debian dan Ubuntu: \`sudo apt install ./swara_*.deb\`."
+            echo "Fedora, RHEL, dan openSUSE: \`sudo dnf install ./swara-*.rpm\`."
             echo
             echo "Ekstrak, lalu jalankan \`swara\`. Di macOS pertama kali perlu"
             echo "\`xattr -dr com.apple.quarantine swara\` karena binary belum ditandatangani."
@@ -131,4 +163,6 @@ jobs:
           files: |
             dist/*.tar.gz
             dist/*.zip
+            dist/*.deb
+            dist/*.rpm
             dist/*.sha256

@@ -43,8 +43,26 @@ dari sampul lagu yang sedang diputar, jadi tiap lagu membawa suasana sendiri.
 
 Rilis siap pakai untuk Linux (x86_64), Windows (x86_64), dan macOS (Apple
 Silicon maupun Intel) ada di halaman [Releases](https://github.com/hanxthvy/swara/releases).
-Ekstrak, lalu jalankan `swara`. Di macOS, binary belum ditandatangani, jadi
-pertama kali jalankan `xattr -dr com.apple.quarantine swara`.
+
+Di Debian dan turunannya (Ubuntu, Mint, Pop!_OS):
+
+```sh
+sudo apt install ./swara_amd64.deb
+```
+
+Di Fedora, RHEL, dan openSUSE:
+
+```sh
+sudo dnf install ./swara-x86_64.rpm
+```
+
+Keduanya memasang biner ke `/usr/bin/swara`, ikon di `/usr/share/icons/hicolor`,
+dan entri menu aplikasi. Selain itu ada tarball `swara-linux-x86_64.tar.gz` yang
+cukup diekstrak tanpa memasang apa pun.
+
+Untuk Windows dan macOS, ekstrak arsipnya lalu jalankan `swara`. Di macOS,
+binary belum ditandatangani, jadi pertama kali jalankan
+`xattr -dr com.apple.quarantine swara`.
 
 ## Bangun sendiri
 
