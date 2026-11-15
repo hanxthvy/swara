@@ -2375,7 +2375,12 @@ impl App {
                         ui.label(ts::body_s(short(&name, 24), s.on_surface_variant));
                     }
                     None => {
-                        if self.chip(ui, "Masuk lewat Chromium", true).clicked() {
+                        let label = if cfg!(target_os = "android") {
+                            "Masuk lewat Google"
+                        } else {
+                            "Masuk lewat Chromium"
+                        };
+                        if self.chip(ui, label, true).clicked() {
                             self.worker.send(Job::Login);
                         }
                     }
@@ -2385,6 +2390,8 @@ impl App {
         ui.label(ts::body_s(
             if self.logged.is_some() {
                 "Sesi dibaca dari profil Chromium di mesin ini, bukan dari kata sandi."
+            } else if cfg!(target_os = "android") {
+                "Login lewat halaman Google di dalam aplikasi. Swara tidak pernah meminta kata sandimu."
             } else {
                 "Swara memakai sesi YouTube yang sudah ada di Chromium. Tanpa kata sandi, tanpa halaman login."
             },
@@ -2537,6 +2544,10 @@ fn install_fonts(ctx: &egui::Context) {
         "/System/Library/Fonts/SFNS.ttf",
         "/System/Library/Fonts/Supplemental/Arial.ttf",
         "/System/Library/Fonts/PingFang.ttc",
+        // Android
+        "/system/fonts/Roboto-Regular.ttf",
+        "/system/fonts/NotoSansCJK-Regular.ttc",
+        "/system/fonts/NotoSansSymbols-Regular.ttf",
     ];
     let mut loaded = Vec::new();
     for (i, path) in candidates.iter().enumerate() {

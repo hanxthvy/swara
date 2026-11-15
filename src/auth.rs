@@ -204,8 +204,51 @@ pub fn read_profile(dir: &Path) -> Result<BTreeMap<String, String>> {
     Ok(jar.into_iter().map(|(k, (_, v))| (k, v)).collect())
 }
 
-/// Muat sesi dari profil Chromium pertama yang punya cookie login.
+/// Impor sesi. Di Android diambil dari WebView, di Linux dari profil Chromium.
 pub fn import_any() -> Result<Session> {
+    #[cfg(target_os = "android")]
+    {
+        return import_webview();
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        import_chromium()
+    }
+}
+
+/// Android: cookie sudah ditulis `Masuk.java` setelah pengguna login di WebView.
+/// Kalau belum ada, halaman login dibuka sendiri dan fungsi ini gagal dengan
+/// pesan yang jelas, bukan diam-diam tanpa akun.
+#[cfg(target_os = "android")]
+fn import_webview() -> Result<Session> {
+    let header = crate::jembatan_android::baca_cookie().unwrap_or_default();
+    let mut jar = BTreeMap::new();
+    for kv in header.split(';') {
+        if let Some((k, v)) = kv.trim().split_once('=') {
+            if !k.is_empty() {
+                jar.insert(k.to_string(), v.to_string());
+            }
+        }
+    }
+    if !(jar.contains_key("SAPISID") || jar.contains_key("__Secure-3PAPISID")) {
+        crate::jembatan_android::buka_login();
+        if jar.is_empty() {
+            bail!("halaman login dibuka: masuk lewat Google, lalu kembali ke Swara");
+        }
+        bail!("login belum selesai: selesaikan di halaman Google lalu kembali");
+    }
+    let s = Session {
+        profile: "webview".into(),
+        label: String::new(),
+        cookies: jar,
+        saved_at: now(),
+    };
+    save(&s)?;
+    Ok(s)
+}
+
+/// Muat sesi dari profil Chromium pertama yang punya cookie login.
+fn import_chromium() -> Result<Session> {
     // Chromium di Linux mengenkripsi cookie dengan kunci dari "peanuts".
     // Di Windows kuncinya lewat DPAPI dan di macOS lewat Keychain, jadi impor
     // sesi belum bisa dilakukan di sana; Swara tetap jalan tanpa akun.

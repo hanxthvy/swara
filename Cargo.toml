@@ -1,11 +1,20 @@
 [package]
 name = "swara"
-version = "0.2.2"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.80"
 description = "Pemutar musik native untuk YouTube Music, tanpa browser"
 license = "MIT"
 repository = "https://github.com/hanxthvy/swara"
+
+# Android memanggil kode Rust ini lewat cdylib, jadi crate ini juga sebuah lib.
+[lib]
+name = "swara"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "swara"
+path = "src/main.rs"
 
 [dependencies]
 egui = "0.29"
@@ -47,6 +56,21 @@ eframe = { version = "0.29", default-features = false, features = [
     "glow",
     "default_fonts",
 ] }
+
+# Android: Activity disediakan `android-activity`, jembatan ke Java (layanan
+# pemutaran latar, halaman login WebView) lewat JNI. winit dipakai langsung
+# untuk menyodorkan Activity ke event loop.
+[target.'cfg(target_os = "android")'.dependencies]
+eframe = { version = "0.29", default-features = false, features = [
+    "glow",
+    "default_fonts",
+    "android-native-activity",
+] }
+winit = { version = "0.30", default-features = false, features = [
+    "android-native-activity",
+] }
+android-activity = { version = "0.6", features = ["native-activity"] }
+jni = "0.21"
 
 [profile.release]
 opt-level = 2

@@ -6,35 +6,8 @@
 //! `swara`             buka aplikasi
 //! `swara --probe [q]` uji jalur InnerTube + unduh + decode tanpa membuka jendela
 
-mod api;
-mod auth;
-mod cepat;
-mod conductor;
-mod paths;
-
-// MPRIS itu D-Bus, jadi hanya ada di Linux. Di sistem lain dipakai pengganti
-// tanpa efek supaya sisa kode tidak perlu bercabang.
-#[cfg(target_os = "linux")]
-mod bridge;
-#[cfg(target_os = "linux")]
-mod mpris;
-#[cfg(not(target_os = "linux"))]
-#[path = "bridge_stub.rs"]
-mod bridge;
-#[cfg(not(target_os = "linux"))]
-#[path = "mpris_stub.rs"]
-mod mpris;
-mod stream;
-mod theme;
-mod player;
-mod ui;
-mod worker;
-
-use api::Api;
-use player::Player;
-use std::sync::Arc;
-use ui::App;
-use worker::Worker;
+use swara::api::Api;
+use swara::Launch;
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -98,7 +71,7 @@ fn main() -> anyhow::Result<()> {
     }
     if let Some(i) = args.iter().position(|a| a == "--cepat") {
         let id = args.get(i + 1).cloned().unwrap_or_default();
-        cepat::uji(&id);
+        swara::cepat::uji(&id);
         return Ok(());
     }
     if let Some(i) = args.iter().position(|a| a == "--lib") {
@@ -160,60 +133,13 @@ fn main() -> anyhow::Result<()> {
     // (mis. `VLLM` = Musik yang Disukai).
     let play_list = std::env::var("SWARA_LIST").ok().filter(|s| !s.is_empty());
 
-    let api = Arc::new(Api::new());
-    let mut player = Player::new()?;
-    let remote = player.remote();
-    let (snap, ends) = player.watch();
-    let worker = Worker::new(api.clone());
-    let api2 = api.clone();
-    // Konduktor dan jembatan MPRIS hidup sebelum jendela dibuka: keduanya
-    // harus tetap jalan saat `update` berhenti (jendela di workspace lain).
-    let (cond, cond_ctl) = conductor::spawn(api2.clone(), remote.clone(), snap.clone(), ends.clone());
-    let mpris = mpris::Mpris::spawn();
-    let mpris_ctl = bridge::spawn(mpris, remote.clone(), cond_ctl, cond.clone(), snap.clone());
-    eprintln!("[swara] mulai, mpris={}", mpris_ctl.is_some());
-
-    let opts = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1180.0, 780.0])
-            .with_min_inner_size([900.0, 600.0])
-            .with_title("Swara")
-            .with_app_id("swara"),
-        ..Default::default()
-    };
-
-    eframe::run_native(
-        "Swara",
-        opts,
-        Box::new(move |cc| {
-            // Detak dari luar jendela. Kalau jendela disembunyikan (pindah
-            // workspace), compositor berhenti mengirim frame callback sehingga
-            // egui tidak pernah `update()` — lagu habis tapi antrean tidak
-            // lanjut. `Context::request_repaint` dari thread lain membangunkan
-            // event loop tanpa menunggu compositor.
-            {
-                let ctx = cc.egui_ctx.clone();
-                std::thread::spawn(move || loop {
-                    std::thread::sleep(std::time::Duration::from_millis(400));
-                    ctx.request_repaint();
-                });
-            }
-            // Konduktor dan jembatan MPRIS sudah jalan di `main`; UI hanya
-            // menerima pegangannya.
-            Ok(Box::new(App::new(
-                cc,
-                api,
-                player,
-                worker,
-                autoplay.clone(),
-                play_id.clone(),
-                play_list.clone(),
-                mpris_ctl,
-                cond,
-            )) as Box<dyn eframe::App>)
-        }),
-    )
-    .map_err(|e| anyhow::anyhow!("{e}"))
+    swara::run_gui(Launch {
+        autoplay,
+        play_id,
+        play_list,
+        #[cfg(target_os = "android")]
+        android_app: None,
+    })
 }
 
 /// Jalur lengkap tanpa GUI: cari, ambil URL, unduh, lalu decode. Dipakai untuk

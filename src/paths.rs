@@ -6,6 +6,16 @@
 
 use std::path::PathBuf;
 
+/// Di Android tidak ada `HOME`: aplikasi hanya boleh menulis di direktori
+/// privatnya sendiri, dan jalurnya baru diketahui setelah Activity hidup.
+#[cfg(target_os = "android")]
+static ANDROID: std::sync::OnceLock<(PathBuf, PathBuf)> = std::sync::OnceLock::new();
+
+#[cfg(target_os = "android")]
+pub fn set_android_dirs(data: PathBuf, cache: PathBuf) {
+    let _ = ANDROID.set((data, cache));
+}
+
 fn home() -> Option<PathBuf> {
     std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
@@ -15,6 +25,10 @@ fn home() -> Option<PathBuf> {
 
 /// Tempat kredensial InnerTube dan sesi akun. Aman dihapus kapan saja.
 pub fn cache_dir() -> PathBuf {
+    #[cfg(target_os = "android")]
+    if let Some((_, cache)) = ANDROID.get() {
+        return cache.clone();
+    }
     let base = if cfg!(windows) {
         std::env::var("LOCALAPPDATA").ok().map(PathBuf::from)
     } else if cfg!(target_os = "macos") {
@@ -30,6 +44,10 @@ pub fn cache_dir() -> PathBuf {
 
 /// Tempat berkas yang seharusnya bertahan: pengaturan dan riwayat.
 pub fn data_dir() -> PathBuf {
+    #[cfg(target_os = "android")]
+    if let Some((data, _)) = ANDROID.get() {
+        return data.clone();
+    }
     let base = if cfg!(windows) {
         std::env::var("APPDATA").ok().map(PathBuf::from)
     } else if cfg!(target_os = "macos") {

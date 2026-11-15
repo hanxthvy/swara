@@ -56,6 +56,11 @@ Di Fedora, RHEL, dan openSUSE:
 sudo dnf install ./swara-x86_64.rpm
 ```
 
+Android: unduh APK-nya, izinkan "instal dari sumber tak dikenal" sekali, lalu
+pasang. Ada tiga berkas: `arm64-v8a` untuk HP 64-bit, `armeabi-v7a` untuk yang
+32-bit, dan `universal` kalau tidak yakin. Semua ditandatangani kunci rilis yang
+sama, jadi versi baru bisa dipasang menimpa yang lama tanpa menghapus data.
+
 Keduanya memasang biner ke `/usr/bin/swara`, ikon di `/usr/share/icons/hicolor`,
 dan entri menu aplikasi. Selain itu ada tarball `swara-linux-x86_64.tar.gz` yang
 cukup diekstrak tanpa memasang apa pun.

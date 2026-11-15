@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.hanxthvy.swara"
+    android:versionCode="3"
+    android:versionName="0.3.0">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.hardware.audio.output" android:required="true" />
+
+    <application
+        android:label="Swara"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:hardwareAccelerated="true"
+        android:allowBackup="true"
+        android:hasCode="true"
+        android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen">
+
+        <!-- Jendela utama berasal dari Rust (cdylib + android_main). -->
+        <activity
+            android:name="android.app.NativeActivity"
+            android:label="Swara"
+            android:exported="true"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|screenLayout|uiMode|density|smallestScreenSize"
+            android:launchMode="singleTask"
+            android:screenOrientation="fullUser">
+            <meta-data android:name="android.app.lib_name" android:value="swara" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Login lewat WebView, tanpa kata sandi di sisi kita. -->
+        <activity
+            android:name="com.hanxthvy.swara.Masuk"
+            android:exported="false"
+            android:label="Masuk ke YouTube Music" />
+
+        <!-- Menjaga proses tetap hidup saat layar mati. -->
+        <service
+            android:name="com.hanxthvy.swara.Latar"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+    </application>
+</manifest>

@@ -2,3 +2,7 @@
 /dist
 *.deb
 *.rpm
+/android/out
+/android/lib
+*.apk
+*.idsig
