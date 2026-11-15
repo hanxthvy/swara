@@ -136,10 +136,16 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - uses: android-actions/setup-android@v3
-
+      # Runner GitHub sudah punya SDK Android; jangan pakai setup-android karena
+      # mencoba memasang paket "tools" yang sudah tidak ada dan gagal.
       - name: Alat Android
-        run: sdkmanager "platforms;android-34" "build-tools;34.0.0" "ndk;27.1.12297006"
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}"
+          SM="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          [ -x "$SM" ] || SM=$(command -v sdkmanager)
+          yes | "$SM" --licenses >/dev/null 2>&1 || true
+          "$SM" "platforms;android-34" "build-tools;34.0.0" "ndk;27.1.12297006"
 
       - uses: dtolnay/rust-toolchain@stable
         with:
