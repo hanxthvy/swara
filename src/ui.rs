@@ -1387,12 +1387,12 @@ impl App {
                         ui.painter().text(
                             pos2(ind.left() + 36.0, ind.center().y),
                             Align2::LEFT_CENTER,
-                            "Masuk",
+                            "Masuk lewat Chromium",
                             FontId::proportional(13.0),
                             s.on_surface,
                         );
                         if resp.clicked() {
-                            self.toast("menyambung sesi Chromium…");
+                            self.toast("membaca sesi YouTube dari Chromium, tanpa kata sandi");
                             self.worker.send(Job::Login);
                         }
                     }
@@ -1501,7 +1501,7 @@ impl App {
                             self.toast("keluar dari akun");
                         }
                         None => {
-                            self.toast("menyambung sesi Chromium…");
+                            self.toast("membaca sesi YouTube dari Chromium, tanpa kata sandi");
                             self.worker.send(Job::Login);
                         }
                     }

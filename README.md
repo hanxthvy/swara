@@ -4,6 +4,13 @@ Pemutar musik desktop untuk YouTube Music, ditulis utuh dalam Rust. Tanpa
 Chromium, tanpa webview, tanpa server lokal: satu binary yang membuka jendelanya
 sendiri, mengambil audionya sendiri, dan mendekodenya sendiri.
 
+> **Tidak perlu login Google di Swara.** Tidak ada kolom kata sandi, tidak ada
+> halaman login, dan Swara tidak pernah meminta kredensial apa pun. Kalau kamu
+> sudah login YouTube di Chromium di mesin yang sama, Swara memakai sesi itu
+> (cookie-nya dibaca lokal, lalu dihapus lagi dari memori). Tanpa sesi pun Swara
+> tetap bisa mencari dan memutar musik — yang hilang hanya playlist akun dan
+> tombol suka.
+
 ![Beranda Swara](docs/beranda.png)
 
 Antarmuka mengikuti tata letak YouTube Music: rail navigasi di kiri, kolom cari di
@@ -55,12 +62,24 @@ Build untuk sistem lain dijalankan otomatis oleh GitHub Actions
 dipush, lengkap dengan berkas `.sha256`.
 
 Pertama kali dijalankan, Swara mengambil kredensial InnerTube dari halaman
-YouTube Music dan menyimpannya 24 jam di `~/.cache/swara/creds.json`. Untuk
-menyambungkan akun:
+YouTube Music dan menyimpannya 24 jam di cache milik sistem
+(`~/.cache/swara` di Linux, `~/Library/Caches/swara` di macOS,
+`%LOCALAPPDATA%\swara` di Windows).
 
-```sh
-swara --login     # membaca cookie dari profil Chromium di mesin ini
-```
+### Menyambungkan akun (opsional, tanpa kata sandi)
+
+Swara tidak punya form login. Yang dipakai adalah sesi YouTube yang sudah ada di
+profil Chromium/Chrome/Brave/Edge/Vivaldi di mesin itu:
+
+1. Buka `youtube.com` di Chromium dan pastikan sudah login.
+2. Tutup Chromium (Supaya berkas cookie-nya tidak terkunci; kalau masih terbuka,
+   Swara menyalinnya dulu ke berkas sementara).
+3. Jalankan `swara --login`, atau klik tombol akun di pojok kanan atas aplikasi.
+
+Tidak ada kata sandi yang diketik di Swara, dan tidak ada yang dikirim ke mana
+pun selain ke YouTube sendiri. Impor sesi saat ini baru bisa membaca cookie
+Chromium di Linux; di Windows dan macOS Swara tetap mencari dan memutar, hanya
+fitur akun belum aktif.
 
 ## Pintasan
 
