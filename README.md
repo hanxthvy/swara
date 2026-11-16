@@ -62,12 +62,12 @@ pasang. Ada tiga berkas: `arm64-v8a` untuk HP 64-bit, `armeabi-v7a` untuk yang
 sama, jadi versi baru bisa dipasang menimpa yang lama tanpa menghapus data.
 
 Keduanya memasang biner ke `/usr/bin/swara`, ikon di `/usr/share/icons/hicolor`,
-dan entri menu aplikasi. Selain itu ada tarball `swara-linux-x86_64.tar.gz` yang
-cukup diekstrak tanpa memasang apa pun.
+dan entri menu aplikasi. Untuk yang tidak mau memasang paket, ada binari mentah
+`swara-linux-x86_64` di halaman rilis: beri izin `chmod +x` lalu jalankan.
 
-Untuk Windows dan macOS, ekstrak arsipnya lalu jalankan `swara`. Di macOS,
-binary belum ditandatangani, jadi pertama kali jalankan
-`xattr -dr com.apple.quarantine swara`.
+Untuk Windows dan macOS, jalankan berkasnya langsung (`swara-windows-x86_64.exe`
+atau `swara-macos-*`), tanpa ekstrak. Di macOS, binary belum ditandatangani, jadi
+pertama kali jalankan `xattr -dr com.apple.quarantine swara-macos-arm64`.
 
 ## Bangun sendiri
 
