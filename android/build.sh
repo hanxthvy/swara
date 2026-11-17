@@ -87,7 +87,7 @@ susun() {
     "$BT/apksigner" sign \
         --ks "$KS" --ks-key-alias "$ALIAS" \
         --ks-pass "pass:$KSPASS" --key-pass "pass:$KSPASS" \
-        --v1-signing-enabled false --v2-signing-enabled true --v3-signing-enabled true \
+        --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true --v4-signing-enabled true \
         --out "$OUT/$nama.apk" "$OUT/$nama.aligned.apk"
     rm -f "$OUT/$nama.unsigned.apk" "$OUT/$nama.aligned.apk"
     "$BT/apksigner" verify --print-certs "$OUT/$nama.apk" | head -3
