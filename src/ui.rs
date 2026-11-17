@@ -3507,6 +3507,42 @@ impl eframe::App for App {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Tombol dari notifikasi, layar kunci, dan headset Android.
+        #[cfg(target_os = "android")]
+        {
+            use crate::jembatan_android as ja;
+            for aksi in ja::ambil_aksi() {
+                match aksi {
+                    ja::AKSI_TOGGLE => self.toggle_play(),
+                    ja::AKSI_PAUSE => {
+                        if self.progress.playing {
+                            self.player.pause();
+                        }
+                    }
+                    ja::AKSI_PLAY => {
+                        if !self.progress.playing {
+                            self.toggle_play();
+                        }
+                    }
+                    ja::AKSI_NEXT => self.next_track(1),
+                    ja::AKSI_PREV => self.next_track(-1),
+                    _ => {}
+                }
+            }
+            // Keadaan untuk kartu pemutar bawaan Android.
+            let (judul, artis) = self
+                .current
+                .as_ref()
+                .map(|c| (c.title.clone(), c.artist.clone()))
+                .unwrap_or_default();
+            ja::perbarui_media(
+                &judul,
+                &artis,
+                self.progress.playing,
+                self.progress.pos,
+                self.progress.dur,
+            );
+        }
         while let Ok(out) = self.worker.rx.try_recv() {
             self.apply_out(out);
         }

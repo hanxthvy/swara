@@ -11,7 +11,16 @@
 
 use jni::objects::{GlobalRef, JClass, JObject, JString, JValue};
 use jni::{JNIEnv, JavaVM};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
+
+/// Aksi tombol dari notifikasi/layar kunci, ditampung dulu lalu dijalankan UI.
+static AKSI: Mutex<Vec<i32>> = Mutex::new(Vec::new());
+
+pub const AKSI_TOGGLE: i32 = 0;
+pub const AKSI_NEXT: i32 = 1;
+pub const AKSI_PREV: i32 = 2;
+pub const AKSI_PAUSE: i32 = 3;
+pub const AKSI_PLAY: i32 = 4;
 
 static VM: OnceLock<JavaVM> = OnceLock::new();
 static AKTIVITAS: OnceLock<GlobalRef> = OnceLock::new();
@@ -130,4 +139,92 @@ pub fn baca_cookie() -> Option<String> {
         }
     })
     .flatten()
+}
+
+/// Dipanggil Java dari sesi media: tombol di notifikasi, layar kunci, atau
+/// headset. Hanya menampung; UI yang menjalankannya supaya jalurnya sama
+/// dengan tombol di layar.
+#[no_mangle]
+pub extern "system" fn Java_com_hanxthvy_swara_Pemutar_kendaliNative(
+    _env: *mut jni::sys::JNIEnv,
+    _kelas: jni::sys::jclass,
+    aksi: jni::sys::jint,
+) {
+    if let Ok(mut g) = AKSI.lock() {
+        g.push(aksi);
+    }
+}
+
+/// Ambil aksi yang menumpuk sejak frame terakhir.
+pub fn ambil_aksi() -> Vec<i32> {
+    AKSI.lock().map(|mut g| std::mem::take(&mut *g)).unwrap_or_default()
+}
+
+/// Tulis keadaan pemutaran ke sesi media Android (notifikasi + layar kunci).
+/// Dibatasi supaya tidak memanggil Java 60 kali per detik untuk posisi.
+pub fn perbarui_media(judul: &str, artis: &str, main: bool, pos: f64, dur: f64) {
+    static TERAKHIR: Mutex<(String, String, bool, Option<std::time::Instant>)> =
+        Mutex::new((String::new(), String::new(), false, None));
+    let perlu = {
+        let Ok(mut g) = TERAKHIR.lock() else { return };
+        let berubah = g.0 != judul || g.1 != artis || g.2 != main;
+        let basi = g.3.map(|t| t.elapsed().as_millis() >= 900).unwrap_or(true);
+        if berubah || basi {
+            *g = (judul.to_string(), artis.to_string(), main, Some(std::time::Instant::now()));
+            true
+        } else {
+            false
+        }
+    };
+    if !perlu {
+        return;
+    }
+    dengan_env(|e| {
+        let Some(akt) = AKTIVITAS.get() else { return };
+        let Some(k) = kelas(e, "com.hanxthvy.swara.Pemutar") else {
+            eprintln!("[swara] kelas Pemutar tidak ketemu");
+            return;
+        };
+        let (Ok(j), Ok(a)) = (e.new_string(judul), e.new_string(artis)) else { return };
+        let hasil = e.call_static_method(
+            &k,
+            "perbarui",
+            "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;ZJJ)V",
+            &[
+                JValue::Object(akt.as_obj()),
+                JValue::Object(&j),
+                JValue::Object(&a),
+                JValue::Bool(u8::from(main)),
+                JValue::Long((pos.max(0.0) * 1000.0) as i64),
+                JValue::Long((dur.max(0.0) * 1000.0) as i64),
+            ],
+        );
+        if let Err(err) = hasil {
+            eprintln!("[swara] Pemutar.perbarui gagal: {err}");
+            if e.exception_check().unwrap_or(false) {
+                let _ = e.exception_describe();
+                let _ = e.exception_clear();
+            }
+        }
+    });
+}
+
+/// Activity sudah dihancurkan: hentikan layanan latar lalu matikan proses.
+/// Tanpa ini, layanan foreground menjaga proses tetap hidup setelah kartu
+/// aplikasi di-swipe dari daftar recent.
+pub fn hentikan_proses() {
+    dengan_env(|e| {
+        let Some(akt) = AKTIVITAS.get() else { return };
+        let Some(k) = kelas(e, "com.hanxthvy.swara.Latar") else { return };
+        if let Err(err) = e.call_static_method(
+            &k,
+            "berhenti",
+            "(Landroid/content/Context;)V",
+            &[JValue::Object(akt.as_obj())],
+        ) {
+            eprintln!("[swara] Latar.berhenti gagal: {err}");
+            let _ = e.exception_clear();
+        }
+    });
+    std::process::exit(0);
 }

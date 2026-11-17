@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.hanxthvy.swara"
-    android:versionCode="7"
-    android:versionName="0.3.4">
+    android:versionCode="8"
+    android:versionName="0.3.5">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -21,7 +21,7 @@
         android:hardwareAccelerated="true"
         android:allowBackup="true"
         android:hasCode="true"
-        android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen">
+        android:theme="@android:style/Theme.Material.NoActionBar">
 
         <!-- Jendela utama berasal dari Rust (cdylib + android_main). -->
         <activity
@@ -48,6 +48,7 @@
         <service
             android:name="com.hanxthvy.swara.Latar"
             android:exported="false"
-            android:foregroundServiceType="mediaPlayback" />
+            android:foregroundServiceType="mediaPlayback"
+            android:stopWithTask="false" />
     </application>
 </manifest>

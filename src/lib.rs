@@ -29,7 +29,7 @@ pub mod bridge;
 pub mod mpris;
 
 #[cfg(target_os = "android")]
-mod jembatan_android;
+pub mod jembatan_android;
 
 use api::Api;
 use player::Player;
@@ -115,6 +115,14 @@ pub fn run_gui(launch: Launch) -> anyhow::Result<()> {
 #[cfg(target_os = "android")]
 #[no_mangle]
 pub fn android_main(app: android_activity::AndroidApp) {
+    // Satu proses hanya boleh punya satu loop UI. Kalau proses lama masih
+    // hidup (dulu mungkin karena layanan START_STICKY), panggilan kedua akan
+    // membuat dua loop berebut AudioFlinger dan berakhir crash.
+    static MASUK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if MASUK.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        eprintln!("[swara] android_main dipanggil dua kali di proses ini; keluar");
+        return;
+    }
     eprintln!("[swara] android_main masuk");
     // Berkas Swara disimpan di dalam direktori privat aplikasi, bukan HOME.
     if let Some(dir) = app.internal_data_path() {
@@ -130,4 +138,7 @@ pub fn android_main(app: android_activity::AndroidApp) {
     if let Err(e) = run_gui(launch) {
         eprintln!("[swara] gagal membuka jendela: {e:#}");
     }
+    // Jendela sudah ditutup (activity dihancurkan). Layanan foreground akan
+    // menjaga proses ini hidup selamanya kalau tidak dimatikan dari sini.
+    jembatan_android::hentikan_proses();
 }
