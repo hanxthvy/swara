@@ -2682,10 +2682,11 @@ impl App {
         });
     }
 
-    /// Bilah tab bawah: Beranda, Sampel, Telusuri, Koleksi, Upgrade.
+    /// Bilah tab bawah: Beranda, Sampel, Telusuri, Koleksi. Tab "Upgrade" milik
+    /// YouTube Music sengaja tidak dipakai -- Swara gratis, tidak ada langganan.
     fn mobile_nav(&mut self, ui: &mut Ui) {
         let s = self.scheme;
-        let w = ui.available_width() / 5.0;
+        let w = ui.available_width() / 4.0;
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
             let aktif = s.on_surface;
@@ -2701,9 +2702,6 @@ impl App {
             }
             if nav_item(ui, Icon::Library, "Koleksi", self.tab == Tab::Koleksi, aktif, redup, w) {
                 self.goto(Tab::Koleksi);
-            }
-            if nav_item(ui, Icon::Upgrade, "Upgrade", false, aktif, redup, w) {
-                self.toast("Swara gratis, tidak ada langganan");
             }
         });
     }
