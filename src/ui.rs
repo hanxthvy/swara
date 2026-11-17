@@ -380,6 +380,9 @@ pub struct App {
 
     lyrics: Option<Lyrics>,
     lyrics_id: String,
+    /// Kapan permintaan lirik terakhir dikirim; dipakai jaring pengaman di
+    /// `lyrics_view` supaya panel tidak berhenti di "memuat lirik…".
+    lyrics_diminta: Option<std::time::Instant>,
     show_lyrics: bool,
     show_queue: bool,
     /// Kolom cari sedang dipegang kursor ketik; pintasan huruf dimatikan.
@@ -408,6 +411,7 @@ pub struct App {
     mpris: Option<MprisCtl>,
     expanded: bool,
     debug_seek: Option<f64>,
+    debug_next: Option<(f64, std::time::Instant)>,
     cond: Arc<Mutex<crate::conductor::Cond>>,
     cond_seq: u64,
     /// Berkas di kotak unggah (nama, ukuran) di layar ponsel.
@@ -452,7 +456,9 @@ impl App {
             focus_cari: false,
             lyrics: None,
             lyrics_id: String::new(),
-            show_lyrics: false,
+            lyrics_diminta: None,
+            // Uji manual: SWARA_LIRIK_TAB=1 membuka panel lirik saat mulai.
+            show_lyrics: std::env::var("SWARA_LIRIK_TAB").is_ok(),
             show_queue: false,
             search_focus: false,
             queue: Vec::new(),
@@ -486,6 +492,10 @@ impl App {
                 Color32::from_rgb(120, 180, 140),
                 Color32::from_rgb(200, 170, 100),
             ],
+    debug_next: std::env::var("SWARA_NEXT")
+        .ok()
+        .and_then(|v| v.parse::<f64>().ok())
+        .map(|d| (d, std::time::Instant::now())),
     debug_seek: std::env::var("SWARA_SEEK")
         .ok()
         .and_then(|v| v.parse::<f64>().ok()),
@@ -588,6 +598,13 @@ impl App {
                 }
             }
             Out::Lyrics(id, l) => {
+                eprintln!(
+                    "[swara] lirik {} (diminta untuk {}): {} baris{}",
+                    id,
+                    self.lyrics_id,
+                    l.synced.len(),
+                    if id == self.lyrics_id { "" } else { " -- BASI, dibuang" }
+                );
                 if id == self.lyrics_id {
                     self.lyrics = Some(l);
                 }
@@ -633,7 +650,7 @@ impl App {
                         m.position(0.0);
                     }
                 }
-                self.worker.send(Job::Lyrics(track));
+                self.minta_lirik(track);
             }
             Out::Failed(e) => {
                 eprintln!("[swara] {e}");
@@ -667,7 +684,7 @@ impl App {
         if !self.queue.iter().any(|x| x.id == t.id) {
             self.queue.push(t.clone());
         }
-        self.worker.send(Job::Lyrics(t));
+        self.minta_lirik(t);
     }
 
     /// Pasang antrean penuh lalu mulai dari lagu pertama. Dipakai playlist
@@ -738,6 +755,27 @@ impl App {
                 self.play_track(t, None);
             }
         }
+    }
+
+    /// Minta lirik sekali untuk satu lagu.
+    ///
+    /// Tanpa penjaga ini, satu pergantian lagu bisa mengirim beberapa
+    /// permintaan sekaligus (dari `Loaded`, dari konduktor, dan dari panel
+    /// lirik). Worker memproses permintaan satu per satu lewat jaringan, jadi
+    /// antrean ganda membuat panel berhenti di "memuat lirik…" puluhan detik
+    /// sampai semua permintaan lama selesai.
+    fn minta_lirik(&mut self, t: Track) {
+        let masih_jalan = self.lyrics_id == t.id
+            && self
+                .lyrics_diminta
+                .map(|x| x.elapsed() < std::time::Duration::from_secs(4))
+                .unwrap_or(false);
+        if masih_jalan {
+            return;
+        }
+        self.lyrics_id = t.id.clone();
+        self.lyrics_diminta = Some(std::time::Instant::now());
+        self.worker.send(Job::Lyrics(t));
     }
 
     fn toggle_play(&mut self) {
@@ -2277,6 +2315,19 @@ impl App {
         let s = self.scheme;
         let Some(l) = self.lyrics.clone() else {
             ui.label(ts::body_s("memuat lirik…", s.on_surface_variant));
+            // Kalau respons lirik hilang (mis. datang untuk lagu sebelumnya
+            // lalu dibuang, atau permintaannya tidak pernah terkirim), panel
+            // akan berhenti di "memuat lirik…" selamanya. Minta ulang sendiri
+            // tiap beberapa detik alih-alih menunggu pengguna menutup tab.
+            let basi = self
+                .lyrics_diminta
+                .map(|t| t.elapsed() > std::time::Duration::from_secs(3))
+                .unwrap_or(true);
+            if basi {
+                if let Some(cur) = self.current.clone() {
+                    self.minta_lirik(cur);
+                }
+            }
             return;
         };
         if l.synced.is_empty() {
@@ -3601,6 +3652,16 @@ impl eframe::App for App {
         if let Some((seq, Some(t), s)) = adopted {
             self.cond_seq = seq;
             self.adopt(t, s);
+        }
+
+        // Uji manual: SWARA_NEXT=12 menekan "lagu berikutnya" sekali setelah
+        // 12 detik, untuk menguji jalur lirik pada pergantian lagu.
+        if let Some((detik, mulai)) = self.debug_next {
+            if mulai.elapsed().as_secs_f64() >= detik && self.progress.playing {
+                self.debug_next = None;
+                eprintln!("[swara] uji: menekan next");
+                self.next_track(1);
+            }
         }
 
         // Uji manual: SWARA_SEEK=120 melompat sekali setelah pemutaran jalan.
