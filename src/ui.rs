@@ -1746,7 +1746,10 @@ impl App {
                 if self.icon_button(ui, Icon::Theme, 34.0, Btn::Ghost).clicked() {
                     self.scheme = theme::scheme(!s.dark, self.seed);
                 }
-                let qbtn = self.icon_button(ui, Icon::Queue, 34.0, Btn::Ghost);
+                // Panel antrean yang sedang terbuka ikut terlihat dari
+                // tombolnya, bukan cuma dari isi layar.
+                let gaya = if self.show_queue { Btn::Tonal } else { Btn::Ghost };
+                let qbtn = self.icon_button(ui, Icon::Queue, 34.0, gaya);
                 if qbtn.clicked() {
                     self.show_queue = !self.show_queue;
                 }
@@ -1946,26 +1949,36 @@ impl App {
                 ui.painter()
                     .circle_filled(dislike.center(), 18.0, s.on_surface.gamma_multiply(0.08));
             }
-            draw_icon(ui.painter(), Icon::Dislike, dislike, s.on_surface_variant);
+            let nilai = self
+                .current
+                .as_ref()
+                .and_then(|t| self.rating.get(&t.id).copied())
+                .unwrap_or(0);
+            draw_ikon(
+                ui.painter(),
+                Icon::Dislike,
+                dislike,
+                if nilai == -1 { s.primary } else { s.on_surface_variant },
+                nilai == -1,
+            );
             let like = Rect::from_center_size(pos2(gx, mid), vec2(24.0, 24.0));
             let lh = ui.interact(like.expand(6.0), egui::Id::new("pb-like"), Sense::click());
             if lh.hovered() {
                 ui.painter()
                     .circle_filled(like.center(), 18.0, s.on_surface.gamma_multiply(0.08));
             }
-            draw_icon(ui.painter(), Icon::Like, like, s.on_surface_variant);
+            draw_ikon(
+                ui.painter(),
+                Icon::Like,
+                like,
+                if nilai == 1 { s.primary } else { s.on_surface_variant },
+                nilai == 1,
+            );
             if lh.clicked() {
-                match self.current.as_ref().map(|t| t.id.clone()) {
-                    Some(id) => {
-                        if self.logged.is_some() {
-                            self.worker.send(Job::Rate(id, true));
-                            self.toast("disukai");
-                        } else {
-                            self.toast("masuk dulu lewat sesi Chromium");
-                        }
-                    }
-                    None => self.toast("belum ada lagu"),
-                }
+                self.nilai_lagu(1);
+            }
+            if dh.clicked() {
+                self.nilai_lagu(-1);
             }
         }
 
@@ -1996,6 +2009,18 @@ impl App {
                 me.scheme.on_surface_variant
             };
             draw_ikon(ui.painter(), icon, r, warna, on);
+            if icon == Icon::Volume && on {
+                // Bisu ditandai garis miring, bukan cuma warna: warna saja
+                // tidak cukup jelas untuk keadaan yang mematikan suara.
+                let d = r.width() * 0.32;
+                ui.painter().line_segment(
+                    [
+                        pos2(r.center().x - d, r.center().y + d),
+                        pos2(r.center().x + d, r.center().y - d),
+                    ],
+                    egui::Stroke::new(r.width() * 0.10, warna),
+                );
+            }
             resp.clicked()
         };
 
@@ -2016,7 +2041,8 @@ impl App {
             self.show_queue = true;
             self.show_lyrics = true;
         }
-        if win_w >= 860.0 && bar_btn(ui, Icon::Volume, vol, "pb-vol", false, self) {
+        let bisu = self.progress.volume <= 0.01;
+        if win_w >= 860.0 && bar_btn(ui, Icon::Volume, vol, "pb-vol", bisu, self) {
             let v = self.progress.volume;
             self.player.set_volume(if v > 0.01 { 0.0 } else { 0.8 });
         }
@@ -2377,21 +2403,27 @@ impl App {
             act = 1;
         }
 
-        for (rect, ikon, id, label) in [
-            (shuffle, Icon::Shuffle, "np-shuffle", "acak"),
-            (repeat, Icon::Repeat, "np-repeat", "ulangi"),
+        for (rect, ikon, id, label, nyala) in [
+            (shuffle, Icon::Shuffle, "np-shuffle", "acak", self.shuffle_on),
+            (repeat, Icon::Repeat, "np-repeat", "ulangi", self.ulangi > 0),
         ] {
             let h = ui.interact(rect.expand(8.0), egui::Id::new(id), Sense::click());
             if h.hovered() {
                 ui.painter()
                     .circle_filled(rect.center(), 17.0, s.on_surface.gamma_multiply(0.08));
             }
-            draw_icon(ui.painter(), ikon, rect, s.on_surface_variant);
+            draw_ikon(
+                ui.painter(),
+                ikon,
+                rect,
+                if nyala { s.primary } else { s.on_surface_variant },
+                nyala,
+            );
             if h.clicked() {
                 if label == "acak" {
                     self.shuffle_queue();
                 } else {
-                    self.toast("ulangi belum diatur");
+                    self.putar_ulang();
                 }
             }
         }
