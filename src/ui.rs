@@ -2153,7 +2153,38 @@ impl App {
                 .size(14.0)
                 .color(s.on_surface_variant),
         );
-        ui.add_space(14.0);
+        // Baris aksi di bawah artis, seperti pemutar YouTube Music: suka dan
+        // tidak suka berdiri sendiri, tidak lagi menumpang di baris kontrol.
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            if self.chip_ikon(ui, Icon::Like, "Suka") {
+                match self.current.as_ref().map(|t| t.id.clone()) {
+                    Some(id) => {
+                        if self.logged.is_some() {
+                            self.worker.send(Job::Rate(id, true));
+                            self.toast("disukai");
+                        } else {
+                            self.toast("masuk dulu lewat sesi Chromium");
+                        }
+                    }
+                    None => self.toast("belum ada lagu"),
+                }
+            }
+            if self.chip_ikon(ui, Icon::Dislike, "Tidak") {
+                match self.current.as_ref().map(|t| t.id.clone()) {
+                    Some(id) => {
+                        if self.logged.is_some() {
+                            self.worker.send(Job::Rate(id, false));
+                            self.toast("tidak disukai");
+                        } else {
+                            self.toast("masuk dulu lewat sesi Chromium");
+                        }
+                    }
+                    None => self.toast("belum ada lagu"),
+                }
+            }
+        });
+        ui.add_space(10.0);
         if let Some(v) = self.seek_bar(ui, dur, w) {
             self.player.seek(v);
         }
@@ -2169,15 +2200,15 @@ impl App {
         let mut act = 0i8;
         // Satu baris dengan geometri mutlak supaya pusat ketiga tombol benar-benar
         // sejajar, tidak bergantung pada cross-align layout egui.
-        let row_w = w.min(360.0);
         let (row, _) = ui.allocate_exact_size(vec2(w, 64.0), Sense::hover());
         let rmid = row.center().y;
         let rcx = row.center().x;
         let play = Rect::from_center_size(pos2(rcx, rmid), vec2(56.0, 56.0));
-        let prev = Rect::from_center_size(pos2(play.center().x - 62.0, rmid), vec2(26.0, 26.0));
-        let next = Rect::from_center_size(pos2(play.center().x + 62.0, rmid), vec2(26.0, 26.0));
-        let like = Rect::from_center_size(pos2(play.center().x + 128.0, rmid), vec2(24.0, 24.0));
-        let _ = row_w;
+        // Urutan tombol mengikuti YouTube Music: shuffle, prev, play, next, repeat.
+        let shuffle = Rect::from_center_size(pos2(rcx - 140.0, rmid), vec2(22.0, 22.0));
+        let prev = Rect::from_center_size(pos2(rcx - 84.0, rmid), vec2(26.0, 26.0));
+        let next = Rect::from_center_size(pos2(rcx + 84.0, rmid), vec2(26.0, 26.0));
+        let repeat = Rect::from_center_size(pos2(rcx + 140.0, rmid), vec2(22.0, 22.0));
 
         let ph = ui.interact(prev.expand(8.0), egui::Id::new("np-prev"), Sense::click());
         if ph.hovered() {
@@ -2216,23 +2247,22 @@ impl App {
             act = 1;
         }
 
-        let lh = ui.interact(like.expand(8.0), egui::Id::new("np-like"), Sense::click());
-        if lh.hovered() {
-            ui.painter()
-                .circle_filled(like.center(), 18.0, s.on_surface.gamma_multiply(0.08));
-        }
-        draw_icon(ui.painter(), Icon::Like, like, s.on_surface_variant);
-        if lh.clicked() {
-            match self.current.as_ref().map(|t| t.id.clone()) {
-                Some(id) => {
-                    if self.logged.is_some() {
-                        self.worker.send(Job::Rate(id, true));
-                        self.toast("disukai");
-                    } else {
-                        self.toast("masuk dulu lewat sesi Chromium");
-                    }
+        for (rect, ikon, id, label) in [
+            (shuffle, Icon::Shuffle, "np-shuffle", "acak"),
+            (repeat, Icon::Repeat, "np-repeat", "ulangi"),
+        ] {
+            let h = ui.interact(rect.expand(8.0), egui::Id::new(id), Sense::click());
+            if h.hovered() {
+                ui.painter()
+                    .circle_filled(rect.center(), 17.0, s.on_surface.gamma_multiply(0.08));
+            }
+            draw_icon(ui.painter(), ikon, rect, s.on_surface_variant);
+            if h.clicked() {
+                if label == "acak" {
+                    self.shuffle_queue();
+                } else {
+                    self.toast("ulangi belum diatur");
                 }
-                None => self.toast("belum ada lagu"),
             }
         }
         match act {
