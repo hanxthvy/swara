@@ -313,26 +313,27 @@ fn draw_icon(p: &egui::Painter, icon: Icon, r: Rect, c: Color32) {
             ));
         }
         Icon::Sample => {
-            let cx = m.x - s * 0.04;
-            for (w, dy) in [(0.10f32, 0.0f32), (0.18, 0.13), (0.26, 0.26)] {
-                p.line_segment(
-                    [
-                        pos2(cx, m.y + s * dy),
-                        pos2(cx + s * w, m.y + s * dy),
-                    ],
-                    Stroke::new(s * 0.08, c),
-                );
+            // Dua segitiga ke kanan ("fast forward"), ikon tab Sampel di
+            // YouTube Music -- bukan grafik batang seperti versi pertama.
+            for dx in [-0.36f32, 0.01] {
+                let tri = vec![
+                    pos2(m.x + s * dx, m.y - s * 0.26),
+                    pos2(m.x + s * dx, m.y + s * 0.26),
+                    pos2(m.x + s * (dx + 0.31), m.y),
+                ];
+                p.add(Shape::convex_polygon(tri, c, Stroke::NONE));
             }
-            let tri = vec![
-                pos2(m.x + s * 0.08, m.y - s * 0.26),
-                pos2(m.x + s * 0.08, m.y + s * 0.06),
-                pos2(m.x + s * 0.34, m.y - s * 0.10),
-            ];
-            p.add(Shape::convex_polygon(tri, c, Stroke::NONE));
         }
         Icon::Upgrade => {
-            p.circle_stroke(m, s * 0.22, Stroke::new(s * 0.08, c));
-            p.circle_stroke(m, s * 0.40, Stroke::new(s * 0.08, c));
+            // Cincin dengan segitiga play di tengah, seperti logo YouTube
+            // Music yang dipakai tab Upgrade.
+            p.circle_stroke(m, s * 0.42, Stroke::new(s * 0.09, c));
+            let tri = vec![
+                pos2(m.x - s * 0.10, m.y - s * 0.17),
+                pos2(m.x - s * 0.10, m.y + s * 0.17),
+                pos2(m.x + s * 0.19, m.y),
+            ];
+            p.add(Shape::convex_polygon(tri, c, Stroke::NONE));
         }
         Icon::Logo => {
             p.circle_filled(m, s * 0.48, Color32::from_rgb(255, 0, 0));
@@ -2878,7 +2879,7 @@ impl App {
                         ui.add_space(gap);
                     }
                 }
-                ui.add_space(30.0);
+                ui.add_space(48.0);
             });
     }
 
@@ -2913,7 +2914,17 @@ impl App {
         ui.painter().text(
             pos2(x, rect.center().y + 10.0),
             Align2::LEFT_CENTER,
-            short(&c.sub.replace('•', "·"), 34),
+            // YouTube Music cuma menampilkan artis + jumlah pemutaran; potongan
+            // lirik di segmen ketiga membuat subteks sesak dan kepotong.
+            short(
+                &c.sub
+                    .split('•')
+                    .take(2)
+                    .map(str::trim)
+                    .collect::<Vec<_>>()
+                    .join(" · "),
+                30,
+            ),
             FontId::proportional(12.0),
             s.on_surface_variant,
         );
@@ -3311,16 +3322,25 @@ fn nav_item(
     draw_icon(
         ui.painter(),
         icon,
-        Rect::from_center_size(pos2(rect.center().x, rect.center().y - 6.0), vec2(23.0, 23.0)),
+        Rect::from_center_size(pos2(rect.center().x, rect.center().y - 8.0), vec2(23.0, 23.0)),
         c,
     );
     ui.painter().text(
-        pos2(rect.center().x, rect.bottom() - 2.0),
+        pos2(rect.center().x, rect.bottom() - 9.0),
         Align2::CENTER_BOTTOM,
         label,
         FontId::proportional(10.0),
         c,
     );
+    // Tab aktif ditandai pil putih kecil di bawah label, sama seperti di
+    // aplikasi YouTube Music -- warnanya saja tidak cukup di layar gelap.
+    if active {
+        ui.painter().rect_filled(
+            Rect::from_center_size(pos2(rect.center().x, rect.bottom() - 1.5), vec2(18.0, 3.0)),
+            Rounding::same(1.5),
+            fg,
+        );
+    }
     resp.clicked()
 }
 
