@@ -375,6 +375,10 @@ pub struct App {
     suggest: Vec<String>,
     show_suggest: bool,
     suggest_at: Option<Instant>,
+    /// Pencarian otomatis setelah berhenti mengetik. Di Android tombol Enter
+    /// dari papan ketik tidak sampai ke egui, jadi tanpa ini kolom cari
+    /// tidak pernah mengirim pencarian.
+    cari_at: Option<Instant>,
     searched: String,
     focus_cari: bool,
 
@@ -452,6 +456,7 @@ impl App {
             suggest: Vec::new(),
             show_suggest: false,
             suggest_at: None,
+            cari_at: None,
             searched: String::new(),
             focus_cari: false,
             lyrics: None,
@@ -3148,14 +3153,27 @@ impl App {
         if resp.changed() {
             self.suggest_at = Some(Instant::now());
             self.show_suggest = true;
+            self.cari_at = Some(Instant::now());
         }
         if resp.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
             submit = true;
+        }
+        // Cari sendiri setelah berhenti mengetik: papan ketik Android tidak
+        // mengirim Enter ke egui, dulu kolom ini diam saja setelah diketik.
+        if let Some(at) = self.cari_at {
+            if at.elapsed() > Duration::from_millis(800) {
+                self.cari_at = None;
+                let q = self.query.trim().to_string();
+                if !q.is_empty() && q != self.searched {
+                    submit = true;
+                }
+            }
         }
         if submit && !self.query.is_empty() {
             self.searched = self.query.clone();
             self.show_suggest = false;
             self.results.clear();
+            self.last_error = None;
             self.worker.send(Job::Search(self.query.clone()));
         }
         ui.add_space(8.0);
@@ -3214,25 +3232,29 @@ impl App {
                 ui.add_space(10.0);
 
                 // ---- sampul besar
+                // Saat panel lirik/antrean dibuka, sampul besar dilepas supaya
+                // ruangnya dipakai isi panel; di ponsel tidak ada panel samping.
                 let w = ui.available_width();
-                let img = Rect::from_center_size(
-                    pos2(ui.max_rect().center().x, ui.cursor().top() + w / 2.0),
-                    vec2(w, w),
-                );
-                ui.painter()
-                    .rect_filled(img, Rounding::same(10.0), s.surface_high);
-                if let Some(t) = &cur {
-                    let ctx2 = ui.ctx().clone();
-                    self.ensure_thumb(&ctx2, &t.thumb);
-                    if let Some(tex) = self.thumb_of(&t.thumb) {
-                        egui::Image::new((tex.id(), tex.size_vec2()))
-                            .fit_to_exact_size(vec2(w, w))
-                            .rounding(Rounding::same(10.0))
-                            .paint_at(ui, img);
+                if !(self.show_lyrics || self.show_queue) {
+                    let img = Rect::from_center_size(
+                        pos2(ui.max_rect().center().x, ui.cursor().top() + w / 2.0),
+                        vec2(w, w),
+                    );
+                    ui.painter()
+                        .rect_filled(img, Rounding::same(10.0), s.surface_high);
+                    if let Some(t) = &cur {
+                        let ctx2 = ui.ctx().clone();
+                        self.ensure_thumb(&ctx2, &t.thumb);
+                        if let Some(tex) = self.thumb_of(&t.thumb) {
+                            egui::Image::new((tex.id(), tex.size_vec2()))
+                                .fit_to_exact_size(vec2(w, w))
+                                .rounding(Rounding::same(10.0))
+                                .paint_at(ui, img);
+                        }
                     }
+                    ui.advance_cursor_after_rect(img);
+                    ui.add_space(16.0);
                 }
-                ui.advance_cursor_after_rect(img);
-                ui.add_space(16.0);
 
                 // ---- judul + artis
                 let judul = cur.as_ref().map(|t| t.title.clone()).unwrap_or_default();
@@ -3269,17 +3291,30 @@ impl App {
                                     None => self.toast("belum ada lagu"),
                                 },
                                 "Lirik" => {
-                                    self.show_lyrics = !self.show_lyrics;
+                                    let buka = !(self.show_lyrics && !self.show_queue);
+                                    self.show_lyrics = buka;
+                                    self.show_queue = false;
                                 }
                                 "Antrean" => {
-                                    self.show_queue = !self.show_queue;
+                                    let buka = !(self.show_queue && !self.show_lyrics);
+                                    self.show_queue = buka;
+                                    self.show_lyrics = false;
                                 }
                                 _ => self.toast("belum didukung"),
                             }
                         }
                     }
                 });
-                ui.add_space(14.0);
+                ui.add_space(10.0);
+
+                // ---- panel lirik / antrean
+                if self.show_lyrics || self.show_queue {
+                    let h = (ui.available_height() - 156.0).clamp(110.0, 420.0);
+                    self.side_panel_body(ui, h);
+                    ui.add_space(6.0);
+                }
+
+                ui.add_space(4.0);
 
                 // ---- bilah durasi
                 if let Some(v) = self.seek_bar(ui, dur, ui.available_width()) {
