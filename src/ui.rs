@@ -355,6 +355,41 @@ fn draw_icon(p: &egui::Painter, icon: Icon, r: Rect, c: Color32) {
     }
 }
 
+/// Ikon yang punya dua keadaan. Suka/tidak suka digambar garis saat mati dan
+/// penuh saat hidup; acak/ulangi memakai warna aksen plus titik kecil di bawah,
+/// supaya keadaan tombolnya kelihatan tanpa harus ditekan dulu.
+fn draw_ikon(p: &egui::Painter, icon: Icon, r: Rect, c: Color32, aktif: bool) {
+    match icon {
+        Icon::Like | Icon::Dislike => {
+            let m = r.center();
+            let s = r.width().min(r.height());
+            let d = if icon == Icon::Like { -1.0 } else { 1.0 };
+            let pts = vec![
+                pos2(m.x - s * 0.34, m.y - s * 0.34 * d),
+                pos2(m.x - s * 0.34, m.y + s * 0.02 * d),
+                pos2(m.x - s * 0.10, m.y + s * 0.02 * d),
+                pos2(m.x + s * 0.02, m.y + s * 0.36 * d),
+                pos2(m.x + s * 0.16, m.y + s * 0.30 * d),
+                pos2(m.x + s * 0.10, m.y + s * 0.02 * d),
+                pos2(m.x + s * 0.34, m.y + s * 0.02 * d),
+                pos2(m.x + s * 0.34, m.y - s * 0.34 * d),
+            ];
+            if aktif {
+                p.add(Shape::convex_polygon(pts.clone(), c, Stroke::NONE));
+            } else {
+                p.add(Shape::closed_line(pts, Stroke::new(s * 0.08, c)));
+            }
+        }
+        Icon::Shuffle | Icon::Repeat => {
+            draw_icon(p, icon, r, c);
+            if aktif {
+                p.circle_filled(pos2(r.center().x, r.bottom() + 2.0), 2.0, c);
+            }
+        }
+        _ => draw_icon(p, icon, r, c),
+    }
+}
+
 // ------------------------------------------------------------------ app
 
 pub struct App {
@@ -388,6 +423,11 @@ pub struct App {
     /// `lyrics_view` supaya panel tidak berhenti di "memuat lirik…".
     lyrics_diminta: Option<std::time::Instant>,
     show_lyrics: bool,
+    /// Keadaan yang harus terbaca dari ikonnya: acak, ulangi, dan nilai
+    /// suka/tidak suka per lagu (1 suka, -1 tidak, 0 belum).
+    shuffle_on: bool,
+    ulangi: u8,
+    rating: std::collections::HashMap<String, i8>,
     show_queue: bool,
     /// Kolom cari sedang dipegang kursor ketik; pintasan huruf dimatikan.
     search_focus: bool,
@@ -464,6 +504,9 @@ impl App {
             lyrics_diminta: None,
             // Uji manual: SWARA_LIRIK_TAB=1 membuka panel lirik saat mulai.
             show_lyrics: std::env::var("SWARA_LIRIK_TAB").is_ok(),
+            shuffle_on: false,
+            ulangi: 0,
+            rating: std::collections::HashMap::new(),
             show_queue: false,
             search_focus: false,
             queue: Vec::new(),
@@ -750,9 +793,26 @@ impl App {
         if len == 0 {
             return;
         }
+        if step > 0 && self.ulangi == 2 {
+            // ulangi satu lagu: tombol next tetap pindah, tapi pemutaran ulang
+            // otomatis di ujung lagu juga memakai jalur ini.
+            if self.progress.pos > 0.5 && self.progress.dur > 0.0 {
+                self.player.seek(0.0);
+                self.player.resume();
+                return;
+            }
+        }
         let idx = self.queue.iter().position(|t| t.id == cur.id);
         let next = match idx {
-            Some(i) => (i as isize + step).rem_euclid(len) as usize,
+            Some(i) => {
+                let j = i as isize + step;
+                if step > 0 && self.ulangi == 0 && j >= len {
+                    self.player.pause();
+                    self.toast("antrean habis");
+                    return;
+                }
+                j.rem_euclid(len) as usize
+            }
             None => 0,
         };
         if let Some(t) = self.queue.get(next).cloned() {
@@ -781,6 +841,32 @@ impl App {
         self.lyrics_id = t.id.clone();
         self.lyrics_diminta = Some(std::time::Instant::now());
         self.worker.send(Job::Lyrics(t));
+    }
+
+    /// Nyatakan suka (+1) atau tidak suka (-1) untuk lagu yang sedang main.
+    /// Ditekan lagi pada pilihan yang sama berarti membatalkannya.
+    fn nilai_lagu(&mut self, nilai: i8) {
+        let Some(id) = self.current.as_ref().map(|t| t.id.clone()) else {
+            self.toast("belum ada lagu");
+            return;
+        };
+        if self.logged.is_none() {
+            self.toast("masuk dulu lewat sesi Chromium");
+            return;
+        }
+        let lama = self.rating.get(&id).copied().unwrap_or(0);
+        let baru = if lama == nilai { 0 } else { nilai };
+        if baru == 0 {
+            self.rating.remove(&id);
+        } else {
+            self.rating.insert(id.clone(), baru);
+        }
+        self.worker.send(Job::Rate(id, baru == 1));
+        self.toast(match baru {
+            1 => "disukai",
+            -1 => "tidak disukai",
+            _ => "penilaian dibatalkan",
+        });
     }
 
     fn toggle_play(&mut self) {
@@ -865,24 +951,29 @@ impl App {
     }
 
     /// Pil aksi berikon: dipakai baris suka/lirik/antrean di pemutar ponsel.
-    fn chip_ikon(&self, ui: &mut Ui, icon: Icon, label: &str) -> bool {
+    fn chip_ikon(&self, ui: &mut Ui, icon: Icon, label: &str, aktif: bool) -> bool {
         let s = self.scheme;
         let teks_w = label.chars().count() as f32 * 7.0;
         let (rect, resp) = ui.allocate_exact_size(vec2(20.0 + 8.0 + teks_w + 14.0, 34.0), Sense::click());
-        ui.painter()
-            .rect_filled(rect, Rounding::same(17.0), s.surface_high);
-        draw_icon(
+        ui.painter().rect_filled(
+            rect,
+            Rounding::same(17.0),
+            if aktif { s.primary_container } else { s.surface_high },
+        );
+        let fg = if aktif { s.on_primary_container } else { s.on_surface };
+        draw_ikon(
             ui.painter(),
             icon,
             Rect::from_center_size(pos2(rect.left() + 20.0, rect.center().y), vec2(17.0, 17.0)),
-            s.on_surface,
+            fg,
+            aktif,
         );
         ui.painter().text(
             pos2(rect.left() + 34.0, rect.center().y),
             Align2::LEFT_CENTER,
             label,
             FontId::proportional(12.5),
-            s.on_surface,
+            fg,
         );
         resp.clicked()
     }
@@ -1899,27 +1990,23 @@ impl App {
                 ui.painter()
                     .circle_filled(r.center(), 18.0, me.scheme.on_surface.gamma_multiply(0.08));
             }
-            draw_icon(
-                ui.painter(),
-                icon,
-                r,
-                if on {
-                    me.scheme.primary
-                } else {
-                    me.scheme.on_surface_variant
-                },
-            );
+            let warna = if on {
+                me.scheme.primary
+            } else {
+                me.scheme.on_surface_variant
+            };
+            draw_ikon(ui.painter(), icon, r, warna, on);
             resp.clicked()
         };
 
         if bar_btn(ui, Icon::ChevronUp, up, "pb-up", false, self) {
             self.expanded = true;
         }
-        if win_w >= 860.0 && bar_btn(ui, Icon::Shuffle, shuf, "pb-shuf", false, self) {
+        if win_w >= 860.0 && bar_btn(ui, Icon::Shuffle, shuf, "pb-shuf", self.shuffle_on, self) {
             self.shuffle_queue();
         }
-        if win_w >= 860.0 && bar_btn(ui, Icon::Repeat, rep, "pb-rep", false, self) {
-            self.toast("antrean berputar otomatis di ujung");
+        if win_w >= 860.0 && bar_btn(ui, Icon::Repeat, rep, "pb-rep", self.ulangi > 0, self) {
+            self.putar_ulang();
         }
         if bar_btn(ui, Icon::Queue, que, "pb-queue", self.show_queue && !self.show_lyrics, self) {
             self.show_queue = !self.show_queue;
@@ -1935,7 +2022,22 @@ impl App {
         }
     }
 
+    /// Ulangi tiga keadaan: mati, semua lagu, satu lagu.
+    fn putar_ulang(&mut self) {
+        self.ulangi = (self.ulangi + 1) % 3;
+        self.toast(match self.ulangi {
+            1 => "ulangi: semua lagu",
+            2 => "ulangi: satu lagu",
+            _ => "ulangi: mati",
+        });
+    }
+
     fn shuffle_queue(&mut self) {
+        self.shuffle_on = !self.shuffle_on;
+        if !self.shuffle_on {
+            self.toast("acak mati");
+            return;
+        }
         let n = self.queue.len();
         if n < 2 {
             self.toast("antrean terlalu pendek untuk diacak");
@@ -1950,7 +2052,7 @@ impl App {
             let j = (seed >> 33) as usize % (i + 1);
             self.queue.swap(i, j);
         }
-        self.toast("antrean diacak");
+        self.toast("acak hidup: antrean diacak");
     }
 
     /// Panel kanan: antrean atau lirik, dengan tab bergaris bawah.
@@ -2200,31 +2302,16 @@ impl App {
         // tidak suka berdiri sendiri, tidak lagi menumpang di baris kontrol.
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
-            if self.chip_ikon(ui, Icon::Like, "Suka") {
-                match self.current.as_ref().map(|t| t.id.clone()) {
-                    Some(id) => {
-                        if self.logged.is_some() {
-                            self.worker.send(Job::Rate(id, true));
-                            self.toast("disukai");
-                        } else {
-                            self.toast("masuk dulu lewat sesi Chromium");
-                        }
-                    }
-                    None => self.toast("belum ada lagu"),
-                }
+            let nilai = self
+                .current
+                .as_ref()
+                .and_then(|t| self.rating.get(&t.id).copied())
+                .unwrap_or(0);
+            if self.chip_ikon(ui, Icon::Like, "Suka", nilai == 1) {
+                self.nilai_lagu(1);
             }
-            if self.chip_ikon(ui, Icon::Dislike, "Tidak") {
-                match self.current.as_ref().map(|t| t.id.clone()) {
-                    Some(id) => {
-                        if self.logged.is_some() {
-                            self.worker.send(Job::Rate(id, false));
-                            self.toast("tidak disukai");
-                        } else {
-                            self.toast("masuk dulu lewat sesi Chromium");
-                        }
-                    }
-                    None => self.toast("belum ada lagu"),
-                }
+            if self.chip_ikon(ui, Icon::Dislike, "Tidak", nilai == -1) {
+                self.nilai_lagu(-1);
             }
         });
         ui.add_space(10.0);
@@ -3276,20 +3363,23 @@ impl App {
                         (Icon::Lyrics, "Lirik"),
                         (Icon::Queue, "Antrean"),
                     ];
+                    let nilai = self
+                        .current
+                        .as_ref()
+                        .and_then(|t| self.rating.get(&t.id).copied())
+                        .unwrap_or(0);
                     for (ikon, label) in aksi {
-                        if self.chip_ikon(ui, ikon, label) {
+                        let nyala = match label {
+                            "Suka" => nilai == 1,
+                            "Tidak" => nilai == -1,
+                            "Lirik" => self.show_lyrics && !self.show_queue,
+                            "Antrean" => self.show_queue && !self.show_lyrics,
+                            _ => false,
+                        };
+                        if self.chip_ikon(ui, ikon, label, nyala) {
                             match label {
-                                "Suka" => match self.current.as_ref().map(|t| t.id.clone()) {
-                                    Some(id) => {
-                                        if self.logged.is_some() {
-                                            self.worker.send(Job::Rate(id, true));
-                                            self.toast("disukai");
-                                        } else {
-                                            self.toast("masuk dulu dulu");
-                                        }
-                                    }
-                                    None => self.toast("belum ada lagu"),
-                                },
+                                "Suka" => self.nilai_lagu(1),
+                                "Tidak" => self.nilai_lagu(-1),
                                 "Lirik" => {
                                     let buka = !(self.show_lyrics && !self.show_queue);
                                     self.show_lyrics = buka;
@@ -3374,22 +3464,27 @@ impl App {
                             egui::Id::new(("mctl", i)),
                             Sense::click(),
                         );
-                        draw_icon(
+                        let nyala = (i == 0 && self.shuffle_on) || (i == 4 && self.ulangi > 0);
+                        let warna = if nyala {
+                            s.primary
+                        } else if i == 0 || i == 4 {
+                            s.on_surface_variant
+                        } else {
+                            s.on_surface
+                        };
+                        draw_ikon(
                             ui.painter(),
                             ikon,
                             Rect::from_center_size(pos2(xs[i], cy), vec2(22.0, 22.0)),
-                            if i == 0 || i == 4 {
-                                s.on_surface_variant
-                            } else {
-                                s.on_surface
-                            },
+                            warna,
+                            nyala,
                         );
                         if r.clicked() {
                             match i {
                                 0 => self.shuffle_queue(),
                                 1 => self.next_track(-1),
                                 3 => self.next_track(1),
-                                _ => self.toast("ulangi belum diatur"),
+                                _ => self.putar_ulang(),
                             }
                         }
                     }
