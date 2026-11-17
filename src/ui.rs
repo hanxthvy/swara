@@ -71,6 +71,11 @@ enum Icon {
     More,
     Shuffle,
     Repeat,
+    Bell,
+    Cast,
+    Sample,
+    Upgrade,
+    Logo,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -272,6 +277,67 @@ fn draw_icon(p: &egui::Painter, icon: Icon, r: Rect, c: Color32) {
             ];
             p.add(Shape::convex_polygon(tri, c, Stroke::NONE));
         }
+        Icon::Bell => {
+            let pts: Vec<egui::Pos2> = vec![
+                pos2(m.x - s * 0.28, m.y + s * 0.20),
+                pos2(m.x - s * 0.24, m.y - s * 0.02),
+                pos2(m.x - s * 0.18, m.y - s * 0.20),
+                pos2(m.x, m.y - s * 0.28),
+                pos2(m.x + s * 0.18, m.y - s * 0.20),
+                pos2(m.x + s * 0.24, m.y - s * 0.02),
+                pos2(m.x + s * 0.28, m.y + s * 0.20),
+            ];
+            p.add(Shape::line(pts, Stroke::new(s * 0.09, c)));
+            p.line_segment(
+                [
+                    pos2(m.x - s * 0.28, m.y + s * 0.20),
+                    pos2(m.x + s * 0.28, m.y + s * 0.20),
+                ],
+                Stroke::new(s * 0.09, c),
+            );
+            p.circle_filled(pos2(m.x, m.y + s * 0.30), s * 0.06, c);
+        }
+        Icon::Cast => {
+            let r = Rect::from_center_size(
+                pos2(m.x + s * 0.04, m.y - s * 0.02),
+                vec2(s * 0.52, s * 0.40),
+            );
+            p.rect_stroke(r, Rounding::same(s * 0.06), Stroke::new(s * 0.08, c));
+            p.circle_filled(pos2(m.x - s * 0.28, m.y + s * 0.22), s * 0.045, c);
+            p.add(Shape::line(
+                vec![
+                    pos2(m.x - s * 0.28, m.y + s * 0.36),
+                    pos2(m.x - s * 0.06, m.y + s * 0.36),
+                ],
+                Stroke::new(s * 0.07, c),
+            ));
+        }
+        Icon::Sample => {
+            let cx = m.x - s * 0.04;
+            for (w, dy) in [(0.10f32, 0.0f32), (0.18, 0.13), (0.26, 0.26)] {
+                p.line_segment(
+                    [
+                        pos2(cx, m.y + s * dy),
+                        pos2(cx + s * w, m.y + s * dy),
+                    ],
+                    Stroke::new(s * 0.08, c),
+                );
+            }
+            let tri = vec![
+                pos2(m.x + s * 0.08, m.y - s * 0.26),
+                pos2(m.x + s * 0.08, m.y + s * 0.06),
+                pos2(m.x + s * 0.34, m.y - s * 0.10),
+            ];
+            p.add(Shape::convex_polygon(tri, c, Stroke::NONE));
+        }
+        Icon::Upgrade => {
+            p.circle_stroke(m, s * 0.22, Stroke::new(s * 0.08, c));
+            p.circle_stroke(m, s * 0.40, Stroke::new(s * 0.08, c));
+        }
+        Icon::Logo => {
+            p.circle_filled(m, s * 0.48, Color32::from_rgb(255, 0, 0));
+            draw_icon(p, Icon::Play, Rect::from_center_size(m, vec2(s * 0.46, s * 0.46)), Color32::WHITE);
+        }
         Icon::Theme => {
             p.circle_filled(m, s * 0.26, c);
             for k in 0..8 {
@@ -343,6 +409,10 @@ pub struct App {
     debug_seek: Option<f64>,
     cond: Arc<Mutex<crate::conductor::Cond>>,
     cond_seq: u64,
+    /// Berkas di kotak unggah (nama, ukuran) di layar ponsel.
+    unggahan: Vec<(String, f64)>,
+    unggah_info: Option<String>,
+    tab_warna: Vec<Color32>,
 }
 
 impl App {
@@ -407,6 +477,14 @@ impl App {
                 .map(|v| !v.is_empty() && v != "0")
                 .unwrap_or(false),
             cond_seq: 0,
+            unggahan: Vec::new(),
+            unggah_info: None,
+            tab_warna: vec![
+                Color32::from_rgb(140, 120, 220),
+                Color32::from_rgb(220, 140, 120),
+                Color32::from_rgb(120, 180, 140),
+                Color32::from_rgb(200, 170, 100),
+            ],
     debug_seek: std::env::var("SWARA_SEEK")
         .ok()
         .and_then(|v| v.parse::<f64>().ok()),
@@ -740,6 +818,29 @@ impl App {
                 .rounding(Rounding::same(16.0))
                 .min_size(vec2(0.0, 32.0)),
         )
+    }
+
+    /// Pil aksi berikon: dipakai baris suka/lirik/antrean di pemutar ponsel.
+    fn chip_ikon(&self, ui: &mut Ui, icon: Icon, label: &str) -> bool {
+        let s = self.scheme;
+        let teks_w = label.chars().count() as f32 * 7.0;
+        let (rect, resp) = ui.allocate_exact_size(vec2(20.0 + 8.0 + teks_w + 14.0, 34.0), Sense::click());
+        ui.painter()
+            .rect_filled(rect, Rounding::same(17.0), s.surface_high);
+        draw_icon(
+            ui.painter(),
+            icon,
+            Rect::from_center_size(pos2(rect.left() + 20.0, rect.center().y), vec2(17.0, 17.0)),
+            s.on_surface,
+        );
+        ui.painter().text(
+            pos2(rect.left() + 34.0, rect.center().y),
+            Align2::LEFT_CENTER,
+            label,
+            FontId::proportional(12.5),
+            s.on_surface,
+        );
+        resp.clicked()
     }
 
     fn icon_button(&self, ui: &mut Ui, icon: Icon, size: f32, style: Btn) -> Response {
@@ -2484,9 +2585,778 @@ impl App {
                 ui.add_space(20.0);
             });
     }
+
+    // ---- tata letak ponsel (mengikuti aplikasi YouTube Music)
+
+    /// Header: logo Music di kiri, lonceng dan avatar di kanan.
+    fn mobile_header(&mut self, ui: &mut Ui) {
+        let s = self.scheme;
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 8.0;
+            let (r, _) = ui.allocate_exact_size(vec2(26.0, 26.0), Sense::hover());
+            draw_icon(ui.painter(), Icon::Logo, r, Color32::WHITE);
+            ui.label(
+                RichText::new("Music")
+                    .size(19.0)
+                    .strong()
+                    .color(s.on_surface),
+            );
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                let logged = self.logged.clone();
+                let (av, avr) = ui.allocate_exact_size(vec2(30.0, 30.0), Sense::click());
+                ui.painter()
+                    .circle_filled(av.center(), 14.0, s.surface_highest);
+                let initial = logged
+                    .as_ref()
+                    .map(|n| n.chars().next().unwrap_or('?').to_uppercase().to_string())
+                    .unwrap_or_else(|| "H".into());
+                ui.painter().text(
+                    av.center(),
+                    Align2::CENTER_CENTER,
+                    initial,
+                    FontId::proportional(12.5),
+                    s.on_surface,
+                );
+                if avr.clicked() {
+                    match logged {
+                        Some(_) => {
+                            self.worker.send(Job::Logout);
+                            self.logged = None;
+                            self.toast("keluar dari akun");
+                        }
+                        None => {
+                            self.worker.send(Job::Login);
+                        }
+                    }
+                }
+                ui.add_space(10.0);
+                let (b, br) = ui.allocate_exact_size(vec2(30.0, 30.0), Sense::click());
+                draw_icon(ui.painter(), Icon::Bell, b, s.on_surface);
+                ui.painter().circle_filled(
+                    pos2(b.right() - 2.0, b.top() + 5.0),
+                    6.0,
+                    Color32::from_rgb(198, 44, 44),
+                );
+                ui.painter().text(
+                    pos2(b.right() - 2.0, b.top() + 5.0),
+                    Align2::CENTER_CENTER,
+                    "1",
+                    FontId::proportional(8.0),
+                    Color32::WHITE,
+                );
+                if br.clicked() {
+                    self.toast("belum ada notifikasi baru");
+                }
+            });
+        });
+    }
+
+    /// Bilah tab bawah: Beranda, Sampel, Telusuri, Koleksi, Upgrade.
+    fn mobile_nav(&mut self, ui: &mut Ui) {
+        let s = self.scheme;
+        let w = ui.available_width() / 5.0;
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 0.0;
+            let aktif = s.on_surface;
+            let redup = s.on_surface_variant;
+            if nav_item(ui, Icon::Home, "Beranda", self.tab == Tab::Home, aktif, redup, w) {
+                self.goto(Tab::Home);
+            }
+            if nav_item(ui, Icon::Sample, "Sampel", false, aktif, redup, w) {
+                self.toast("Sampel belum ada isinya");
+            }
+            if nav_item(ui, Icon::Search, "Telusuri", self.tab == Tab::Cari, aktif, redup, w) {
+                self.goto(Tab::Cari);
+            }
+            if nav_item(ui, Icon::Library, "Koleksi", self.tab == Tab::Koleksi, aktif, redup, w) {
+                self.goto(Tab::Koleksi);
+            }
+            if nav_item(ui, Icon::Upgrade, "Upgrade", false, aktif, redup, w) {
+                self.toast("Swara gratis, tidak ada langganan");
+            }
+        });
+    }
+
+    /// Mini player di atas bilah tab: sampul, judul, cast, putar/jeda.
+    fn mobile_mini(&mut self, ui: &mut Ui) {
+        let s = self.scheme;
+        let ctx = ui.ctx().clone();
+        let cur = self.current.clone();
+        let Some(t) = cur else { return };
+        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 58.0), Sense::click());
+        self.ensure_thumb(&ctx, &t.thumb);
+        let img = Rect::from_center_size(
+            pos2(rect.left() + 31.0, rect.center().y - 3.0),
+            vec2(46.0, 46.0),
+        );
+        ui.painter()
+            .rect_filled(img, Rounding::same(6.0), s.surface_high);
+        if let Some(tex) = self.thumb_of(&t.thumb) {
+            egui::Image::new((tex.id(), tex.size_vec2()))
+                .fit_to_exact_size(vec2(46.0, 46.0))
+                .rounding(Rounding::same(6.0))
+                .paint_at(ui, img);
+        }
+        ui.painter().text(
+            pos2(img.right() + 12.0, rect.center().y - 11.0),
+            Align2::LEFT_CENTER,
+            short(&t.title, 26),
+            FontId::proportional(14.0),
+            s.on_surface,
+        );
+        ui.painter().text(
+            pos2(img.right() + 12.0, rect.center().y + 9.0),
+            Align2::LEFT_CENTER,
+            short(&t.artist, 30),
+            FontId::proportional(12.0),
+            s.on_surface_variant,
+        );
+        let pr = Rect::from_center_size(
+            pos2(rect.right() - 26.0, rect.center().y - 3.0),
+            vec2(22.0, 22.0),
+        );
+        draw_icon(
+            ui.painter(),
+            if self.progress.playing {
+                Icon::Pause
+            } else {
+                Icon::Play
+            },
+            pr,
+            s.on_surface,
+        );
+        let cr = Rect::from_center_size(
+            pos2(rect.right() - 68.0, rect.center().y - 3.0),
+            vec2(20.0, 20.0),
+        );
+        draw_icon(ui.painter(), Icon::Cast, cr, s.on_surface_variant);
+        // garis durasi tipis di dasar bilah
+        let dur = self.progress.dur;
+        let frac = if dur > 0.0 {
+            (self.progress.pos / dur).clamp(0.0, 1.0) as f32
+        } else {
+            0.0
+        };
+        let bar = Rect::from_min_max(
+            pos2(rect.left(), rect.bottom() - 2.0),
+            pos2(rect.right(), rect.bottom()),
+        );
+        ui.painter()
+            .rect_filled(bar, Rounding::ZERO, s.surface_highest);
+        ui.painter().rect_filled(
+            Rect::from_min_max(bar.min, pos2(bar.left() + bar.width() * frac, bar.bottom())),
+            Rounding::ZERO,
+            s.primary,
+        );
+        if resp.clicked() {
+            if let Some(p) = resp.interact_pointer_pos() {
+                if (p.x - pr.center().x).abs() < 24.0 {
+                    self.toggle_play();
+                } else if (p.x - cr.center().x).abs() < 22.0 {
+                    self.toast("cast belum didukung");
+                } else {
+                    self.expanded = true;
+                }
+            }
+        }
+    }
+
+    /// Isi tab Beranda di ponsel: chip suasana, daftar "Pilihan cepat", grid pintasan.
+    fn mobile_feed(&mut self, ui: &mut Ui) {
+        let s = self.scheme;
+        let rows = self.home.clone();
+        ScrollArea::vertical()
+            .id_salt("mfeed")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ScrollArea::horizontal()
+                    .id_salt("mchips")
+                    .auto_shrink([false, true])
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 8.0;
+                            for m in [
+                                "Mengisi energi",
+                                "Senang",
+                                "Bersantai",
+                                "Sedih",
+                                "Perjalanan",
+                            ] {
+                                if self.chip(ui, m, self.searched == m).clicked() {
+                                    self.query = m.to_string();
+                                    self.searched = m.to_string();
+                                    self.tab = Tab::Cari;
+                                    self.results.clear();
+                                    self.worker.send(Job::Search(m.to_string()));
+                                }
+                            }
+                        });
+                    });
+                ui.add_space(14.0);
+
+                if rows.is_empty() {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.add_space(6.0);
+                        ui.label(ts::body("Memuat beranda…", s.on_surface_variant));
+                    });
+                    return;
+                }
+
+                // ---- seksi pertama: daftar baris, seperti "Pilihan cepat"
+                let baris = rows[0].items.clone();
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(&rows[0].title)
+                            .size(21.0)
+                            .strong()
+                            .color(s.on_surface),
+                    );
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if self.chip(ui, "Putar semua", false).clicked() {
+                            let q: Vec<Track> = baris
+                                .iter()
+                                .filter(|c| c.kind == "song")
+                                .map(|c| Track {
+                                    id: c.id.clone(),
+                                    title: c.title.clone(),
+                                    artist: c
+                                        .sub
+                                        .split('•')
+                                        .next()
+                                        .unwrap_or("")
+                                        .trim()
+                                        .to_string(),
+                                    album: String::new(),
+                                    thumb: c.thumb.clone(),
+                                    dur: String::new(),
+                                    secs: 0.0,
+                                })
+                                .collect();
+                            if let Some(first) = q.first().cloned() {
+                                self.play_track(first, Some(q));
+                            } else if let Some(c) = baris.first() {
+                                self.open_card(c);
+                            }
+                        }
+                    });
+                });
+                ui.add_space(6.0);
+                for (i, c) in baris.iter().take(6).enumerate() {
+                    if self.mobile_row(ui, c, i) {
+                        self.open_card(c);
+                    }
+                }
+
+                // ---- seksi berikutnya: grid 3 kolom dengan judul di atas gambar
+                for row in rows.iter().skip(1).take(3) {
+                    ui.add_space(20.0);
+                    ui.horizontal(|ui| {
+                        if row.title.to_lowercase().contains("pintasan") {
+                            let (av, _) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::hover());
+                            ui.painter()
+                                .circle_filled(av.center(), 11.0, s.surface_highest);
+                        }
+                        ui.label(
+                            RichText::new(&row.title)
+                                .size(21.0)
+                                .strong()
+                                .color(s.on_surface),
+                        );
+                    });
+                    ui.add_space(8.0);
+                    let gap = 8.0;
+                    let avail = ui.available_width();
+                    let cw = ((avail - gap * 2.0) / 3.0).floor();
+                    for chunk in row.items.chunks(3) {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = gap;
+                            for c in chunk {
+                                self.mobile_tile(ui, c, cw);
+                            }
+                        });
+                        ui.add_space(gap);
+                    }
+                }
+                ui.add_space(30.0);
+            });
+    }
+
+    /// Baris daftar untuk ponsel: sampul, judul, subteks, titik tiga.
+    fn mobile_row(&mut self, ui: &mut Ui, c: &Card, idx: usize) -> bool {
+        let s = self.scheme;
+        let _ = idx;
+        let ctx = ui.ctx().clone();
+        self.ensure_thumb(&ctx, &c.thumb);
+        let playing = self.current.as_ref().map(|t| t.id == c.id).unwrap_or(false);
+        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 62.0), Sense::click());
+        let img = Rect::from_center_size(
+            pos2(rect.left() + 26.0, rect.center().y),
+            vec2(52.0, 52.0),
+        );
+        ui.painter()
+            .rect_filled(img, Rounding::same(6.0), s.surface_high);
+        if let Some(tex) = self.thumb_of(&c.thumb) {
+            egui::Image::new((tex.id(), tex.size_vec2()))
+                .fit_to_exact_size(vec2(52.0, 52.0))
+                .rounding(Rounding::same(6.0))
+                .paint_at(ui, img);
+        }
+        let x = img.right() + 12.0;
+        ui.painter().text(
+            pos2(x, rect.center().y - 10.0),
+            Align2::LEFT_CENTER,
+            short(&c.title, 30),
+            FontId::proportional(14.5),
+            if playing { s.primary } else { s.on_surface },
+        );
+        ui.painter().text(
+            pos2(x, rect.center().y + 10.0),
+            Align2::LEFT_CENTER,
+            short(&c.sub.replace('•', "·"), 34),
+            FontId::proportional(12.0),
+            s.on_surface_variant,
+        );
+        draw_icon(
+            ui.painter(),
+            Icon::More,
+            Rect::from_center_size(
+                pos2(rect.right() - 16.0, rect.center().y),
+                vec2(18.0, 18.0),
+            ),
+            s.on_surface_variant,
+        );
+        resp.clicked()
+    }
+
+    /// Kartu persegi 3 kolom, judul menempel di bawah gambar.
+    fn mobile_tile(&mut self, ui: &mut Ui, c: &Card, w: f32) -> bool {
+        let s = self.scheme;
+        let ctx = ui.ctx().clone();
+        self.ensure_thumb(&ctx, &c.thumb);
+        let (rect, resp) = ui.allocate_exact_size(vec2(w, w), Sense::click());
+        ui.painter()
+            .rect_filled(rect, Rounding::same(6.0), s.surface_high);
+        if let Some(tex) = self.thumb_of(&c.thumb) {
+            egui::Image::new((tex.id(), tex.size_vec2()))
+                .fit_to_exact_size(vec2(w, w))
+                .rounding(Rounding::same(6.0))
+                .paint_at(ui, rect);
+        }
+        // gradasi gelap di kaki kartu supaya judul terbaca
+        let kaki = Rect::from_min_max(pos2(rect.left(), rect.bottom() - w * 0.42), rect.max);
+        let mut mesh = egui::Mesh::default();
+        let atas = s.surface.gamma_multiply(0.0);
+        let bawah = Color32::from_black_alpha(190);
+        mesh.colored_vertex(kaki.left_top(), atas);
+        mesh.colored_vertex(kaki.right_top(), atas);
+        mesh.colored_vertex(kaki.left_bottom(), bawah);
+        mesh.colored_vertex(kaki.right_bottom(), bawah);
+        mesh.add_triangle(0, 1, 2);
+        mesh.add_triangle(1, 3, 2);
+        ui.painter().add(Shape::mesh(mesh));
+        ui.painter().text(
+            pos2(rect.center().x, rect.bottom() - 8.0),
+            Align2::CENTER_BOTTOM,
+            short(&c.title, (w / 7.4).max(8.0) as usize),
+            FontId::proportional(11.5),
+            Color32::WHITE,
+        );
+        if resp.clicked() {
+            self.open_card(c);
+            return true;
+        }
+        false
+    }
+
+    /// Kerangka layar ponsel: header, isi tab, mini player, bilah tab.
+    fn mobile(&mut self, ctx: &egui::Context, _w: f32) {
+        let s = self.scheme;
+        egui::TopBottomPanel::bottom("mnav")
+            .resizable(false)
+            .exact_height(56.0)
+            .frame(
+                egui::Frame::none()
+                    .fill(s.surface_low)
+                    .inner_margin(egui::Margin::symmetric(0.0, 2.0)),
+            )
+            .show(ctx, |ui| self.mobile_nav(ui));
+
+        if self.current.is_some() {
+            egui::TopBottomPanel::bottom("mmini")
+                .resizable(false)
+                .exact_height(58.0)
+                .frame(
+                    egui::Frame::none()
+                        .fill(s.surface_low)
+                        .inner_margin(egui::Margin::symmetric(12.0, 0.0)),
+                )
+                .show(ctx, |ui| self.mobile_mini(ui));
+        }
+
+        egui::TopBottomPanel::top("mhead")
+            .resizable(false)
+            .exact_height(54.0)
+            .frame(
+                egui::Frame::none()
+                    .fill(s.surface)
+                    .inner_margin(egui::Margin::symmetric(14.0, 10.0)),
+            )
+            .show(ctx, |ui| self.mobile_header(ui));
+
+        egui::CentralPanel::default()
+            .frame(
+                egui::Frame::none()
+                    .fill(s.surface)
+                    .inner_margin(egui::Margin::symmetric(14.0, 0.0)),
+            )
+            .show(ctx, |ui| match self.tab {
+                Tab::Home => self.mobile_feed(ui),
+                Tab::Cari => {
+                    self.mobile_search(ui);
+                }
+                Tab::Koleksi => self.tab_koleksi(ui),
+            });
+    }
+
+    /// Kolom cari di ponsel, di atas hasil pencarian.
+    fn mobile_search(&mut self, ui: &mut Ui) {
+        let s = self.scheme;
+        let mut submit = false;
+        ui.add_space(6.0);
+        let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 42.0), Sense::hover());
+        ui.painter()
+            .rect_filled(rect, Rounding::same(21.0), s.surface_high);
+        draw_icon(
+            ui.painter(),
+            Icon::Search,
+            Rect::from_center_size(pos2(rect.left() + 22.0, rect.center().y), vec2(18.0, 18.0)),
+            s.on_surface_variant,
+        );
+        let te_rect = Rect::from_min_max(
+            pos2(rect.left() + 40.0, rect.top() + 11.0),
+            pos2(rect.right() - 14.0, rect.bottom() - 11.0),
+        );
+        let te = egui::TextEdit::singleline(&mut self.query)
+            .frame(false)
+            .margin(vec2(0.0, 0.0));
+        let resp = ui.put(te_rect, te);
+        self.search_focus = resp.has_focus();
+        if self.query.is_empty() && !resp.has_focus() {
+            ui.painter().text(
+                pos2(te_rect.left(), te_rect.center().y),
+                Align2::LEFT_CENTER,
+                "Cari lagu, album, artis",
+                FontId::proportional(13.0),
+                s.on_surface_variant,
+            );
+        }
+        if self.focus_cari {
+            resp.request_focus();
+            self.focus_cari = false;
+        }
+        if resp.changed() {
+            self.suggest_at = Some(Instant::now());
+            self.show_suggest = true;
+        }
+        if resp.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+            submit = true;
+        }
+        if submit && !self.query.is_empty() {
+            self.searched = self.query.clone();
+            self.show_suggest = false;
+            self.results.clear();
+            self.worker.send(Job::Search(self.query.clone()));
+        }
+        ui.add_space(8.0);
+        self.tab_cari(ui);
+    }
+
+    /// Pemutar penuh di ponsel: sampul besar, aksi, bilah durasi, kontrol.
+    fn mobile_player(&mut self, ctx: &egui::Context) {
+        let s = self.scheme;
+        let cur = self.current.clone();
+        let dur = self.progress.dur;
+        let mut tutup = false;
+        let mut seek_ke: Option<f64> = None;
+        egui::CentralPanel::default()
+            .frame(
+                egui::Frame::none()
+                    .fill(s.surface)
+                    .inner_margin(egui::Margin::symmetric(18.0, 12.0)),
+            )
+            .show(ctx, |ui| {
+                // ---- baris atas
+                ui.horizontal(|ui| {
+                    let (r, resp) = ui.allocate_exact_size(vec2(34.0, 34.0), Sense::click());
+                    draw_icon(ui.painter(), Icon::ChevronDown, r, s.on_surface);
+                    if resp.clicked() {
+                        tutup = true;
+                    }
+                    ui.add_space(6.0);
+                    let (p1, _) = ui.allocate_exact_size(vec2(46.0, 30.0), Sense::hover());
+                    ui.painter()
+                        .rect_filled(p1, Rounding::same(15.0), s.surface_high);
+                    draw_icon(
+                        ui.painter(),
+                        Icon::Volume,
+                        Rect::from_center_size(p1.center(), vec2(17.0, 17.0)),
+                        s.on_surface,
+                    );
+                    ui.add_space(6.0);
+                    let (p2, _) = ui.allocate_exact_size(vec2(46.0, 30.0), Sense::hover());
+                    ui.painter()
+                        .rect_filled(p2, Rounding::same(15.0), s.surface_high);
+                    draw_icon(
+                        ui.painter(),
+                        Icon::Play,
+                        Rect::from_center_size(p2.center(), vec2(15.0, 15.0)),
+                        s.on_surface_variant,
+                    );
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        let (m, _) = ui.allocate_exact_size(vec2(34.0, 34.0), Sense::hover());
+                        draw_icon(ui.painter(), Icon::More, m, s.on_surface);
+                        ui.add_space(4.0);
+                        let (c, _) = ui.allocate_exact_size(vec2(34.0, 34.0), Sense::hover());
+                        draw_icon(ui.painter(), Icon::Cast, c, s.on_surface);
+                    });
+                });
+                ui.add_space(10.0);
+
+                // ---- sampul besar
+                let w = ui.available_width();
+                let img = Rect::from_center_size(
+                    pos2(ui.max_rect().center().x, ui.cursor().top() + w / 2.0),
+                    vec2(w, w),
+                );
+                ui.painter()
+                    .rect_filled(img, Rounding::same(10.0), s.surface_high);
+                if let Some(t) = &cur {
+                    let ctx2 = ui.ctx().clone();
+                    self.ensure_thumb(&ctx2, &t.thumb);
+                    if let Some(tex) = self.thumb_of(&t.thumb) {
+                        egui::Image::new((tex.id(), tex.size_vec2()))
+                            .fit_to_exact_size(vec2(w, w))
+                            .rounding(Rounding::same(10.0))
+                            .paint_at(ui, img);
+                    }
+                }
+                ui.advance_cursor_after_rect(img);
+                ui.add_space(16.0);
+
+                // ---- judul + artis
+                let judul = cur.as_ref().map(|t| t.title.clone()).unwrap_or_default();
+                let artis = cur.as_ref().map(|t| t.artist.clone()).unwrap_or_default();
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(short(&judul, 30)).size(22.0).strong().color(s.on_surface));
+                    let (r, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
+                    draw_icon(ui.painter(), Icon::Next, r, s.on_surface_variant);
+                });
+                ui.label(RichText::new(short(&artis, 36)).size(13.0).color(s.on_surface_variant));
+                ui.add_space(12.0);
+
+                // ---- pil aksi
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 8.0;
+                    let aksi: [(Icon, &str); 4] = [
+                        (Icon::Like, "Suka"),
+                        (Icon::Dislike, "Tidak"),
+                        (Icon::Lyrics, "Lirik"),
+                        (Icon::Queue, "Antrean"),
+                    ];
+                    for (ikon, label) in aksi {
+                        if self.chip_ikon(ui, ikon, label) {
+                            match label {
+                                "Suka" => match self.current.as_ref().map(|t| t.id.clone()) {
+                                    Some(id) => {
+                                        if self.logged.is_some() {
+                                            self.worker.send(Job::Rate(id, true));
+                                            self.toast("disukai");
+                                        } else {
+                                            self.toast("masuk dulu dulu");
+                                        }
+                                    }
+                                    None => self.toast("belum ada lagu"),
+                                },
+                                "Lirik" => {
+                                    self.show_lyrics = !self.show_lyrics;
+                                }
+                                "Antrean" => {
+                                    self.show_queue = !self.show_queue;
+                                }
+                                _ => self.toast("belum didukung"),
+                            }
+                        }
+                    }
+                });
+                ui.add_space(14.0);
+
+                // ---- bilah durasi
+                if let Some(v) = self.seek_bar(ui, dur, ui.available_width()) {
+                    seek_ke = Some(v);
+                }
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(fmt_time(self.progress.pos))
+                            .size(11.5)
+                            .color(s.on_surface_variant),
+                    );
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.label(
+                            RichText::new(fmt_time(dur))
+                                .size(11.5)
+                                .color(s.on_surface_variant),
+                        );
+                    });
+                });
+                ui.add_space(8.0);
+
+                // ---- kontrol
+                let w = ui.available_width();
+                let (rect, _) = ui.allocate_exact_size(vec2(w, 66.0), Sense::hover());
+                let cy = rect.center().y;
+                let xs = [
+                    rect.left() + 24.0,
+                    rect.left() + w * 0.30,
+                    rect.center().x,
+                    rect.left() + w * 0.70,
+                    rect.right() - 24.0,
+                ];
+                for (i, ikon) in [Icon::Shuffle, Icon::Prev, Icon::Play, Icon::Next, Icon::Repeat]
+                    .into_iter()
+                    .enumerate()
+                {
+                    if i == 2 {
+                        let besar = Rect::from_center_size(pos2(xs[2], cy), vec2(62.0, 62.0));
+                        ui.painter().circle_filled(besar.center(), 31.0, s.on_surface);
+                        draw_icon(
+                            ui.painter(),
+                            if self.progress.playing {
+                                Icon::Pause
+                            } else {
+                                Icon::Play
+                            },
+                            Rect::from_center_size(besar.center(), vec2(28.0, 28.0)),
+                            s.surface,
+                        );
+                        let r = ui.interact(besar, egui::Id::new("mplay"), Sense::click());
+                        if r.clicked() {
+                            self.toggle_play();
+                        }
+                    } else {
+                        let r = ui.interact(
+                            Rect::from_center_size(pos2(xs[i], cy), vec2(40.0, 40.0)),
+                            egui::Id::new(("mctl", i)),
+                            Sense::click(),
+                        );
+                        draw_icon(
+                            ui.painter(),
+                            ikon,
+                            Rect::from_center_size(pos2(xs[i], cy), vec2(22.0, 22.0)),
+                            if i == 0 || i == 4 {
+                                s.on_surface_variant
+                            } else {
+                                s.on_surface
+                            },
+                        );
+                        if r.clicked() {
+                            match i {
+                                0 => self.shuffle_queue(),
+                                1 => self.next_track(-1),
+                                3 => self.next_track(1),
+                                _ => self.toast("ulangi belum diatur"),
+                            }
+                        }
+                    }
+                }
+                ui.add_space(10.0);
+
+                // ---- handle + Mix
+                let (h, _) = ui.allocate_exact_size(vec2(ui.available_width(), 12.0), Sense::hover());
+                ui.painter().rect_filled(
+                    Rect::from_center_size(h.center(), vec2(34.0, 3.0)),
+                    Rounding::same(2.0),
+                    s.on_surface_variant.gamma_multiply(0.5),
+                );
+                ui.add_space(6.0);
+                if self.chip(ui, &format!("Mix {}", short(&judul, 18)), false).clicked() {
+                    if let Some(t) = self.current.clone() {
+                        self.worker.send(Job::Radio(t.id));
+                    }
+                }
+            });
+        if let Some(v) = seek_ke {
+            self.player.seek(v);
+        }
+        if tutup {
+            self.expanded = false;
+        }
+    }
 }
 
 // ------------------------------------------------------------------ util
+
+/// Ikon di panel bawah ponsel: digambar dengan painter, label di bawahnya.
+fn nav_item(
+    ui: &mut Ui,
+    icon: Icon,
+    label: &str,
+    active: bool,
+    fg: Color32,
+    redup: Color32,
+    w: f32,
+) -> bool {
+    let (rect, resp) = ui.allocate_exact_size(vec2(w, 50.0), Sense::click());
+    let c = if active { fg } else { redup };
+    draw_icon(
+        ui.painter(),
+        icon,
+        Rect::from_center_size(pos2(rect.center().x, rect.center().y - 6.0), vec2(23.0, 23.0)),
+        c,
+    );
+    ui.painter().text(
+        pos2(rect.center().x, rect.bottom() - 2.0),
+        Align2::CENTER_BOTTOM,
+        label,
+        FontId::proportional(10.0),
+        c,
+    );
+    resp.clicked()
+}
+
+/// Baris berkas untuk kotak unggah (gambar/video) di layar ponsel.
+fn berkas_baris(ui: &mut Ui, nama: &str, ukuran: f64, warna: Color32, teks: Color32) -> bool {
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 54.0), Sense::click());
+    let bulat = Rect::from_min_size(
+        pos2(rect.left(), rect.center().y - 20.0),
+        vec2(40.0, 40.0),
+    );
+    ui.painter().rect_filled(bulat, Rounding::same(8.0), warna);
+    let (ikon, ket) = if nama.to_lowercase().ends_with(".mp4")
+        || nama.to_lowercase().ends_with(".mkv")
+        || nama.to_lowercase().ends_with(".webm")
+    {
+        (Icon::Play, "video")
+    } else {
+        (Icon::Upgrade, "gambar")
+    };
+    draw_icon(ui.painter(), ikon, Rect::from_center_size(bulat.center(), vec2(18.0, 18.0)), teks);
+    ui.painter().text(
+        pos2(bulat.right() + 12.0, rect.center().y - 8.0),
+        Align2::LEFT_CENTER,
+        short(nama, 34),
+        FontId::proportional(13.5),
+        teks,
+    );
+    ui.painter().text(
+        pos2(bulat.right() + 12.0, rect.center().y + 10.0),
+        Align2::LEFT_CENTER,
+        format!("{ket} • {:.0} KB", ukuran / 1024.0),
+        FontId::proportional(11.5),
+        teks.gamma_multiply(0.75),
+    );
+    resp.clicked()
+}
 
 fn short(s: &str, n: usize) -> String {
     if s.chars().count() <= n {
@@ -2750,6 +3620,17 @@ impl eframe::App for App {
         style.visuals.widgets.active.bg_fill = s.surface_highest;
         ctx.set_style(style);
 
-        self.ui(ctx);
+        let lebar = ctx.screen_rect().width();
+        if lebar < 800.0 || cfg!(target_os = "android") {
+            // Di layar ponsel tata letaknya mengikuti aplikasi YouTube Music:
+            // header, chip suasana, daftar, grid pintasan, mini player, tab bawah.
+            if self.expanded {
+                self.mobile_player(ctx);
+            } else {
+                self.mobile(ctx, lebar);
+            }
+        } else {
+            self.ui(ctx);
+        }
     }
 }
