@@ -1706,7 +1706,11 @@ impl App {
                 self.suggest_at = Some(Instant::now());
                 self.show_suggest = true;
             }
-            if resp.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+            // Enter pada kolom satu baris menyerahkan fokus lebih dulu, jadi
+            // has_focus() sudah false saat baris ini jalan. lost_focus() ikut
+            // dihitung supaya Enter tetap menjalankan pencarian.
+            let tekan_enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
+            if tekan_enter && (resp.has_focus() || resp.lost_focus()) {
                 submit = true;
             }
 
@@ -3274,7 +3278,8 @@ impl App {
             self.show_suggest = true;
             self.cari_at = Some(Instant::now());
         }
-        if resp.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+        let tekan_enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
+        if tekan_enter && (resp.has_focus() || resp.lost_focus()) {
             submit = true;
         }
         // Cari sendiri setelah berhenti mengetik: papan ketik Android tidak
