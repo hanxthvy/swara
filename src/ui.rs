@@ -428,7 +428,13 @@ pub struct App {
     shuffle_on: bool,
     ulangi: u8,
     rating: std::collections::HashMap<String, i8>,
+    /// Keadaan suka lagu yang sedang main, dibagi dengan pengendali luar
+    /// (soket `swara --ctl`), supaya ikon di jendela dan di pill islet sama.
+    suka: crate::ctl::Bersama,
     show_queue: bool,
+    /// Tinggi bilah status Android dalam titik; dipakai layar ponsel supaya
+    /// judul tidak tertutup jam dan notifikasi.
+    inset_atas: f32,
     /// Kolom cari sedang dipegang kursor ketik; pintasan huruf dimatikan.
     search_focus: bool,
 
@@ -475,6 +481,7 @@ impl App {
         play_list: Option<String>,
         mpris: Option<MprisCtl>,
         cond: Arc<Mutex<crate::conductor::Cond>>,
+        suka: crate::ctl::Bersama,
     ) -> Self {
         install_fonts(&cc.egui_ctx);
         worker.attach(cc.egui_ctx.clone());
@@ -507,7 +514,9 @@ impl App {
             shuffle_on: false,
             ulangi: 0,
             rating: std::collections::HashMap::new(),
+            suka,
             show_queue: false,
+            inset_atas: 0.0,
             search_focus: false,
             queue: Vec::new(),
             current: None,
@@ -860,6 +869,13 @@ impl App {
             self.rating.remove(&id);
         } else {
             self.rating.insert(id.clone(), baru);
+        }
+        {
+            let mut g = self.suka.lock().unwrap();
+            g.id = id.clone();
+            g.suka = baru == 1;
+            drop(g);
+            crate::ctl::tulis(&self.suka);
         }
         self.worker.send(Job::Rate(id, baru == 1));
         self.toast(match baru {
@@ -3212,13 +3228,19 @@ impl App {
                 .show(ctx, |ui| self.mobile_mini(ui));
         }
 
+        let atas = self.inset_atas;
         egui::TopBottomPanel::top("mhead")
             .resizable(false)
-            .exact_height(54.0)
+            .exact_height(54.0 + atas)
             .frame(
                 egui::Frame::none()
                     .fill(s.surface)
-                    .inner_margin(egui::Margin::symmetric(14.0, 10.0)),
+                    .inner_margin(egui::Margin {
+                        left: 14.0,
+                        right: 14.0,
+                        top: 10.0 + atas,
+                        bottom: 10.0,
+                    }),
             )
             .show(ctx, |ui| self.mobile_header(ui));
 
@@ -3311,11 +3333,17 @@ impl App {
         let dur = self.progress.dur;
         let mut tutup = false;
         let mut seek_ke: Option<f64> = None;
+        let atas = self.inset_atas;
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::none()
                     .fill(s.surface)
-                    .inner_margin(egui::Margin::symmetric(18.0, 12.0)),
+                    .inner_margin(egui::Margin {
+                        left: 18.0,
+                        right: 18.0,
+                        top: 12.0 + atas,
+                        bottom: 12.0,
+                    }),
             )
             .show(ctx, |ui| {
                 // ---- baris atas
@@ -3725,10 +3753,20 @@ impl eframe::App for App {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        #[cfg(target_os = "android")]
+        if self.inset_atas == 0.0 {
+            let px = crate::jembatan_android::inset_atas_px();
+            if px > 0.0 {
+                self.inset_atas = px / ctx.pixels_per_point().max(0.5);
+                eprintln!("[swara] inset atas {:.1} titik", self.inset_atas);
+            }
+        }
+        self.sinkron_suka();
         // Tombol dari notifikasi, layar kunci, dan headset Android.
         #[cfg(target_os = "android")]
         {
             use crate::jembatan_android as ja;
+            ja::detak();
             for aksi in ja::ambil_aksi() {
                 match aksi {
                     ja::AKSI_TOGGLE => self.toggle_play(),
@@ -3742,20 +3780,28 @@ impl eframe::App for App {
                             self.toggle_play();
                         }
                     }
+                    ja::AKSI_SUKA => self.nilai_lagu(1),
                     ja::AKSI_NEXT => self.next_track(1),
                     ja::AKSI_PREV => self.next_track(-1),
                     _ => {}
                 }
             }
             // Keadaan untuk kartu pemutar bawaan Android.
-            let (judul, artis) = self
+            let (judul, artis, sampul) = self
                 .current
                 .as_ref()
-                .map(|c| (c.title.clone(), c.artist.clone()))
+                .map(|c| (c.title.clone(), c.artist.clone(), c.thumb.clone()))
                 .unwrap_or_default();
+            let suka = self
+                .current
+                .as_ref()
+                .map(|c| self.rating.get(&c.id).copied().unwrap_or(0) == 1)
+                .unwrap_or(false);
             ja::perbarui_media(
                 &judul,
                 &artis,
+                &sampul,
+                suka,
                 self.progress.playing,
                 self.progress.pos,
                 self.progress.dur,
@@ -3944,5 +3990,33 @@ impl eframe::App for App {
         } else {
             self.ui(ctx);
         }
+    }
+}
+
+impl App {
+    /// Samakan peta `rating` dengan keadaan yang dibagi ke pengendali luar.
+    /// Dua arah: lagu baru kita laporkan keluar, perubahan dari soket kita
+    /// ikuti masuk — kalau tidak, ikon hati di jendela bisa berbeda dengan
+    /// yang dilihat islet.
+    fn sinkron_suka(&mut self) {
+        let Some(id) = self.current.as_ref().map(|t| t.id.clone()) else {
+            return;
+        };
+        let masuk = self.logged.is_some();
+        let mut g = self.suka.lock().unwrap();
+        g.masuk = masuk;
+        if g.id == id {
+            if g.suka {
+                self.rating.insert(id, 1);
+            } else {
+                self.rating.remove(&id);
+            }
+            return;
+        }
+        let suka = self.rating.get(&id).copied().unwrap_or(0) == 1;
+        g.id = id;
+        g.suka = suka;
+        drop(g);
+        crate::ctl::tulis(&self.suka);
     }
 }

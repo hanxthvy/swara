@@ -67,10 +67,36 @@ impl Worker {
         let _ = self.tx.send(job);
     }
 
+    /// Salinan kanal masuk saja, untuk pengendali luar (soket kendali):
+    /// `Receiver` tidak bisa di-clone, sedangkan thread lain cukup bisa
+    /// mengirim pekerjaan dan membangunkan jendela.
+    pub fn pintu(&self) -> Pintu {
+        Pintu {
+            tx: self.tx.clone(),
+            ctx: self.ctx.clone(),
+        }
+    }
+
     /// Tanpa ini hasil dari thread lain baru terlihat setelah jendela
     /// disentuh: egui hanya menggambar kalau ada yang meminta.
     pub fn attach(&self, ctx: egui::Context) {
         *self.ctx.lock().unwrap() = Some(ctx);
+    }
+}
+
+/// Pengirim pekerjaan dari luar UI (soket kendali).
+#[derive(Clone)]
+pub struct Pintu {
+    tx: Sender<Job>,
+    ctx: Arc<std::sync::Mutex<Option<egui::Context>>>,
+}
+
+impl Pintu {
+    pub fn send(&self, job: Job) {
+        let _ = self.tx.send(job);
+        if let Some(c) = self.ctx.lock().ok().and_then(|g| g.clone()) {
+            c.request_repaint();
+        }
     }
 }
 

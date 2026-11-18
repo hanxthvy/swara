@@ -9,9 +9,12 @@
 //! dari thread native, `FindClass` hanya tahu classpath sistem dan berakhir
 //! dengan `ClassNotFoundException`.
 
+use crate::player::{Progress, Remote};
 use jni::objects::{GlobalRef, JClass, JObject, JString, JValue};
 use jni::{JNIEnv, JavaVM};
-use std::sync::{Mutex, OnceLock};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Instant;
 
 /// Aksi tombol dari notifikasi/layar kunci, ditampung dulu lalu dijalankan UI.
 static AKSI: Mutex<Vec<i32>> = Mutex::new(Vec::new());
@@ -21,6 +24,64 @@ pub const AKSI_NEXT: i32 = 1;
 pub const AKSI_PREV: i32 = 2;
 pub const AKSI_PAUSE: i32 = 3;
 pub const AKSI_PLAY: i32 = 4;
+pub const AKSI_SUKA: i32 = 5;
+
+/// Pegangan pemutar untuk tombol dari kartu bawaan Android. Dipakai saat
+/// jendela sedang tidak menggambar (aplikasi di latar, layar mati): egui tidak
+/// memanggil `update`, jadi aksi yang hanya ditumpuk di antrean tidak akan
+/// pernah dijalankan sampai aplikasi dibuka lagi.
+static REMOTE: OnceLock<Remote> = OnceLock::new();
+static SNAP: OnceLock<Arc<Mutex<Progress>>> = OnceLock::new();
+
+/// Detak terakhir `App::update`, dalam mikrodetik sejak proses mulai.
+static DETAK: AtomicU64 = AtomicU64::new(0);
+static AWAL: OnceLock<Instant> = OnceLock::new();
+
+fn sekarang_us() -> u64 {
+    AWAL.get_or_init(Instant::now).elapsed().as_micros() as u64
+}
+
+/// Dipanggil UI setiap giliran gambar: tanda jendela masih hidup.
+pub fn detak() {
+    DETAK.store(sekarang_us(), Ordering::Relaxed);
+}
+
+pub fn pasang_kendali(remote: Remote, snap: Arc<Mutex<Progress>>) {
+    let _ = REMOTE.set(remote);
+    let _ = SNAP.set(snap);
+}
+
+/// Jendela dianggap hidup kalau ada detak dalam 1,2 detik terakhir.
+fn ui_hidup() -> bool {
+    let d = DETAK.load(Ordering::Relaxed);
+    d != 0 && sekarang_us().saturating_sub(d) < 1_200_000
+}
+
+fn main_sekarang() -> bool {
+    SNAP.get()
+        .and_then(|s| s.lock().ok().map(|g| g.playing))
+        .unwrap_or(false)
+}
+
+fn jalankan_langsung(aksi: i32) -> bool {
+    let (Some(r), Some(_)) = (REMOTE.get(), SNAP.get()) else {
+        return false;
+    };
+    eprintln!("[swara] kendali langsung aksi={aksi} main={}", main_sekarang());
+    match aksi {
+        AKSI_PAUSE => r.pause(),
+        AKSI_PLAY => r.resume(),
+        AKSI_TOGGLE => {
+            if main_sekarang() {
+                r.pause();
+            } else {
+                r.resume();
+            }
+        }
+        _ => return false,
+    }
+    true
+}
 
 static VM: OnceLock<JavaVM> = OnceLock::new();
 static AKTIVITAS: OnceLock<GlobalRef> = OnceLock::new();
@@ -150,6 +211,12 @@ pub extern "system" fn Java_com_hanxthvy_swara_Pemutar_kendaliNative(
     _kelas: jni::sys::jclass,
     aksi: jni::sys::jint,
 ) {
+    // Saat jendela tidak menggambar, jeda/lanjut dikerjakan langsung di sini.
+    // Aksi lain (berikutnya/sebelumnya, suka) tetap lewat UI karena butuh
+    // antrean dan sesi akun.
+    if !ui_hidup() && jalankan_langsung(aksi) {
+        return;
+    }
     if let Ok(mut g) = AKSI.lock() {
         g.push(aksi);
     }
@@ -162,15 +229,30 @@ pub fn ambil_aksi() -> Vec<i32> {
 
 /// Tulis keadaan pemutaran ke sesi media Android (notifikasi + layar kunci).
 /// Dibatasi supaya tidak memanggil Java 60 kali per detik untuk posisi.
-pub fn perbarui_media(judul: &str, artis: &str, main: bool, pos: f64, dur: f64) {
-    static TERAKHIR: Mutex<(String, String, bool, Option<std::time::Instant>)> =
-        Mutex::new((String::new(), String::new(), false, None));
+pub fn perbarui_media(
+    judul: &str,
+    artis: &str,
+    sampul: &str,
+    suka: bool,
+    main: bool,
+    pos: f64,
+    dur: f64,
+) {
+    static TERAKHIR: Mutex<(String, String, String, bool, bool, Option<std::time::Instant>)> =
+        Mutex::new((String::new(), String::new(), String::new(), false, false, None));
     let perlu = {
         let Ok(mut g) = TERAKHIR.lock() else { return };
-        let berubah = g.0 != judul || g.1 != artis || g.2 != main;
-        let basi = g.3.map(|t| t.elapsed().as_millis() >= 900).unwrap_or(true);
+        let berubah = g.0 != judul || g.1 != artis || g.2 != sampul || g.3 != suka || g.4 != main;
+        let basi = g.5.map(|t| t.elapsed().as_millis() >= 900).unwrap_or(true);
         if berubah || basi {
-            *g = (judul.to_string(), artis.to_string(), main, Some(std::time::Instant::now()));
+            *g = (
+                judul.to_string(),
+                artis.to_string(),
+                sampul.to_string(),
+                suka,
+                main,
+                Some(std::time::Instant::now()),
+            );
             true
         } else {
             false
@@ -185,15 +267,23 @@ pub fn perbarui_media(judul: &str, artis: &str, main: bool, pos: f64, dur: f64) 
             eprintln!("[swara] kelas Pemutar tidak ketemu");
             return;
         };
-        let (Ok(j), Ok(a)) = (e.new_string(judul), e.new_string(artis)) else { return };
+        let (Ok(j), Ok(a), Ok(u)) = (
+            e.new_string(judul),
+            e.new_string(artis),
+            e.new_string(sampul),
+        ) else {
+            return;
+        };
         let hasil = e.call_static_method(
             &k,
             "perbarui",
-            "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;ZJJ)V",
+            "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ZZJJ)V",
             &[
                 JValue::Object(akt.as_obj()),
                 JValue::Object(&j),
                 JValue::Object(&a),
+                JValue::Object(&u),
+                JValue::Bool(u8::from(suka)),
                 JValue::Bool(u8::from(main)),
                 JValue::Long((pos.max(0.0) * 1000.0) as i64),
                 JValue::Long((dur.max(0.0) * 1000.0) as i64),
@@ -207,6 +297,30 @@ pub fn perbarui_media(judul: &str, artis: &str, main: bool, pos: f64, dur: f64) 
             }
         }
     });
+}
+
+/// Tinggi bilah status sistem, dalam piksel fisik. Nol kalau tidak terbaca.
+pub fn inset_atas_px() -> f32 {
+    dengan_env(|e| {
+        let Some(akt) = AKTIVITAS.get() else { return 0.0 };
+        let Some(k) = kelas(e, "com.hanxthvy.swara.Layar") else {
+            return 0.0;
+        };
+        let hasil = match e.call_static_method(
+            &k,
+            "insetAtas",
+            "(Landroid/content/Context;)F",
+            &[JValue::Object(akt.as_obj())],
+        ) {
+            Ok(v) => v,
+            Err(_) => {
+                let _ = e.exception_clear();
+                return 0.0;
+            }
+        };
+        hasil.f().unwrap_or(0.0)
+    })
+    .unwrap_or(0.0)
 }
 
 /// Activity sudah dihancurkan: hentikan layanan latar lalu matikan proses.

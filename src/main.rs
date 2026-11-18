@@ -55,6 +55,19 @@ fn main() -> anyhow::Result<()> {
         }
         return Ok(());
     }
+    // Kendali untuk jendela yang sedang jalan (dipakai islet: tombol suka di
+    // pill notch). Mencetak balasan JSON satu baris.
+    if let Some(i) = args.iter().position(|a| a == "--ctl") {
+        let cmd = args.get(i + 1).cloned().unwrap_or_else(|| "state".into());
+        match swara::ctl::kirim(&cmd) {
+            Ok(j) => println!("{j}"),
+            Err(e) => {
+                println!("{e:#}");
+                std::process::exit(1);
+            }
+        }
+        return Ok(());
+    }
     if args.iter().any(|a| a == "--version" || a == "-V") {
         println!("swara {}", env!("CARGO_PKG_VERSION"));
         return Ok(());

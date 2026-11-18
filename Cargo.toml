@@ -1,6 +1,6 @@
 [package]
 name = "swara"
-version = "0.3.11"
+version = "0.3.12"
 edition = "2021"
 rust-version = "1.80"
 description = "Pemutar musik native untuk YouTube Music, tanpa browser"

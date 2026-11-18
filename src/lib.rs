@@ -6,6 +6,11 @@
 
 pub mod api;
 pub mod auth;
+#[cfg(target_os = "linux")]
+pub mod ctl;
+#[cfg(not(target_os = "linux"))]
+#[path = "ctl_stub.rs"]
+pub mod ctl;
 pub mod cepat;
 pub mod conductor;
 pub mod paths;
@@ -52,6 +57,13 @@ pub fn run_gui(launch: Launch) -> anyhow::Result<()> {
     let api = Arc::new(Api::new());
     let mut player = Player::new()?;
     let remote = player.remote();
+    #[cfg(target_os = "android")]
+    {
+        // Tombol dari kartu pemutar bawaan Android harus tetap bekerja saat
+        // jendela tidak menggambar di latar.
+        let (snap2, _) = player.watch();
+        jembatan_android::pasang_kendali(remote.clone(), snap2);
+    }
     let (snap, ends) = player.watch();
     let worker = Worker::new(api.clone());
     let api2 = api.clone();
@@ -60,6 +72,10 @@ pub fn run_gui(launch: Launch) -> anyhow::Result<()> {
     let (cond, cond_ctl) = conductor::spawn(api2.clone(), remote.clone(), snap.clone(), ends.clone());
     let mpris = mpris::Mpris::spawn();
     let mpris_ctl = bridge::spawn(mpris, remote.clone(), cond_ctl, cond.clone(), snap.clone());
+    // Kendali luar (islet): tombol suka di pill notch memakai soket ini, dan
+    // berkas keadaannya dibaca islet tanpa polling.
+    let suka = ctl::bersama();
+    ctl::spawn(worker.pintu(), suka.clone());
     eprintln!("[swara] mulai, mpris={}", mpris_ctl.is_some());
 
     let mut opts = eframe::NativeOptions {
@@ -105,6 +121,7 @@ pub fn run_gui(launch: Launch) -> anyhow::Result<()> {
                 launch.play_list.clone(),
                 mpris_ctl,
                 cond,
+                suka,
             )) as Box<dyn eframe::App>)
         }),
     )

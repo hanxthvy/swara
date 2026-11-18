@@ -31,6 +31,7 @@ public class Pemutar {
     public static final int AKSI_PREV = 2;
     public static final int AKSI_PAUSE = 3;
     public static final int AKSI_PLAY = 4;
+    public static final int AKSI_SUKA = 5;
 
     private static final String KANAL = "swara_putar";
     private static final int ID = 1001;
@@ -45,6 +46,9 @@ public class Pemutar {
     private static String artis = "";
     private static Context app;
     private static boolean mintaNotif = false;
+    private static boolean sukaSekarang = false;
+    private static String urlSeni = "";
+    private static android.graphics.Bitmap seni = null;
 
     static {
         // Tanpa ini, simbol Java_com_hanxthvy_swara_Pemutar_kendaliNative tidak
@@ -93,23 +97,28 @@ public class Pemutar {
      * @param posMs   posisi dalam milidetik
      * @param durMs   durasi dalam milidetik
      */
-    public static void perbarui(Context c, String j, String a, boolean main, long posMs, long durMs) {
+    public static void perbarui(Context c, String j, String a, String seniUrl, boolean suka,
+                                boolean main, long posMs, long durMs) {
         app = c.getApplicationContext();
         siapkan(c);
 
         boolean bergantiLagu = !j.equals(judul) || !a.equals(artis);
         boolean bergantiMain = main != sedangMain;
+        boolean bergantiSuka = suka != sukaSekarang;
         judul = j;
         artis = a;
         sedangMain = main;
+        sukaSekarang = suka;
 
-        MediaMetadata.Builder m = new MediaMetadata.Builder()
-                .putString(MediaMetadata.METADATA_KEY_TITLE, j)
-                .putString(MediaMetadata.METADATA_KEY_ARTIST, a);
-        if (durMs > 0) {
-            m.putLong(MediaMetadata.METADATA_KEY_DURATION, durMs);
+        // Sampul diunduh sendiri: MediaSession hanya menerima Bitmap, bukan URL.
+        String url = seniUrl == null ? "" : seniUrl;
+        if (!url.equals(urlSeni)) {
+            urlSeni = url;
+            seni = null;
+            muatSeni(url);
         }
-        sesi.setMetadata(m.build());
+
+        perbaruiMetadata(durMs);
 
         int st;
         if (main) {
@@ -119,14 +128,18 @@ public class Pemutar {
         } else {
             st = PlaybackState.STATE_NONE;
         }
-        sesi.setPlaybackState(new PlaybackState.Builder()
+        PlaybackState.Builder pb = new PlaybackState.Builder()
                 .setActions(PlaybackState.ACTION_PLAY
                         | PlaybackState.ACTION_PAUSE
                         | PlaybackState.ACTION_PLAY_PAUSE
                         | PlaybackState.ACTION_SKIP_TO_NEXT
                         | PlaybackState.ACTION_SKIP_TO_PREVIOUS)
-                .setState(st, Math.max(0, posMs), main ? 1f : 0f)
-                .build());
+                .setState(st, Math.max(0, posMs), main ? 1f : 0f);
+        PlaybackState.CustomAction sukaAksi = aksiSuka(c);
+        if (sukaAksi != null) {
+            pb.addCustomAction(sukaAksi);
+        }
+        sesi.setPlaybackState(pb.build());
         sesi.setActive(true);
 
         if (main) {
@@ -137,8 +150,96 @@ public class Pemutar {
 
         // Notifikasi hanya disegarkan saat lagu/keadaan berubah; posisi cukup
         // lewat PlaybackState supaya bilah system UI tetap halus.
-        if (bergantiLagu || bergantiMain) {
+        if (bergantiLagu || bergantiMain || bergantiSuka) {
             tampilkan();
+        }
+    }
+
+    /** Metadata lagu yang sedang main, termasuk sampul bila sudah terunduh. */
+    private static void perbaruiMetadata(long durMs) {
+        if (sesi == null) {
+            return;
+        }
+        MediaMetadata.Builder m = new MediaMetadata.Builder()
+                .putString(MediaMetadata.METADATA_KEY_TITLE, judul)
+                .putString(MediaMetadata.METADATA_KEY_ARTIST, artis);
+        if (durMs > 0) {
+            m.putLong(MediaMetadata.METADATA_KEY_DURATION, durMs);
+        }
+        if (seni != null) {
+            m.putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, seni);
+            m.putBitmap(MediaMetadata.METADATA_KEY_ART, seni);
+        }
+        sesi.setMetadata(m.build());
+    }
+
+    /**
+     * Unduh sampul di thread sendiri lalu pasang ke sesi. Tanpa ini kartu
+     * pemutar bawaan Android tampil kosong tanpa gambar.
+     */
+    private static void muatSeni(final String url) {
+        if (url == null || url.isEmpty()) {
+            return;
+        }
+        final Context ctx = app;
+        Thread t = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                android.graphics.Bitmap bmp = null;
+                try {
+                    java.net.HttpURLConnection h = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+                    h.setConnectTimeout(6000);
+                    h.setReadTimeout(8000);
+                    h.setRequestProperty("User-Agent", "Mozilla/5.0");
+                    java.io.InputStream in = h.getInputStream();
+                    byte[] isi = baca(in);
+                    in.close();
+                    bmp = android.graphics.BitmapFactory.decodeByteArray(isi, 0, isi.length);
+                } catch (Throwable e) {
+                    bmp = null;
+                }
+                if (bmp == null || !url.equals(urlSeni)) {
+                    return;
+                }
+                seni = bmp;
+                new android.os.Handler(android.os.Looper.getMainLooper()).post(new Runnable() {
+                    @Override
+                    public void run() {
+                        perbaruiMetadata(0);
+                        tampilkan();
+                    }
+                });
+            }
+        }, "seni-swara");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    private static byte[] baca(java.io.InputStream in) throws java.io.IOException {
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        byte[] buf = new byte[8192];
+        int n;
+        while ((n = in.read(buf)) > 0) {
+            out.write(buf, 0, n);
+        }
+        return out.toByteArray();
+    }
+
+    /** Tombol suka di kartu pemutar; ikonnya ikut keadaan sekarang. */
+    private static PlaybackState.CustomAction aksiSuka(Context c) {
+        try {
+            String nama = sukaSekarang ? "ic_suka_isi" : "ic_suka";
+            int id = c.getResources().getIdentifier(nama, "drawable", c.getPackageName());
+            if (id == 0) {
+                return null;
+            }
+            PlaybackState.CustomAction.Builder b = new PlaybackState.CustomAction.Builder(
+                    sukaSekarang ? "swara.batal" : "swara.suka",
+                    sukaSekarang ? "Batal suka" : "Suka",
+                    id);
+            return b.build();
+        } catch (Throwable t) {
+            return null;
         }
     }
 
@@ -176,6 +277,13 @@ public class Pemutar {
                 @Override
                 public void onStop() {
                     kirim(AKSI_PAUSE);
+                }
+
+                @Override
+                public void onCustomAction(String action, android.os.Bundle args) {
+                    if (action != null && action.startsWith("swara.suka")) {
+                        kirim(AKSI_SUKA);
+                    }
                 }
             },
             // Thread UI Swara milik Rust tidak punya Looper; tanpa Handler
