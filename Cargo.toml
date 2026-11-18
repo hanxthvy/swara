@@ -1,6 +1,6 @@
 [package]
 name = "swara"
-version = "0.3.12"
+version = "0.3.13"
 edition = "2021"
 rust-version = "1.80"
 description = "Pemutar musik native untuk YouTube Music, tanpa browser"
@@ -33,9 +33,8 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png"]
 anyhow = "1"
 regex = "1"
 sha1 = "0.10"
-rusqlite = { version = "0.40.2", features = ["bundled"] }
-aes = "0.8.4"
-cbc = "0.1.2"
+
+
 pbkdf2 = "0.12.2"
 hmac = "0.12.1"
 tokio = { version = "1.53.3", features = ["macros", "rt", "time"] }
@@ -50,6 +49,12 @@ eframe = { version = "0.29", default-features = false, features = [
     "x11",
 ] }
 mpris-server = "0.11"
+# Khusus Linux: cookie Chromium (SQLite + AES-128-CBC). Android memakai
+# WebView dan Windows/macOS belum bisa mengimpor sesi, jadi keduanya tidak
+# perlu membawa SQLite maupun AES.
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+aes = "0.8.4"
+cbc = "0.1.2"
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 eframe = { version = "0.29", default-features = false, features = [

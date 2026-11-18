@@ -435,6 +435,9 @@ pub struct App {
     /// Tinggi bilah status Android dalam titik; dipakai layar ponsel supaya
     /// judul tidak tertutup jam dan notifikasi.
     inset_atas: f32,
+    /// Berapa kali inset dibaca; beberapa frame pertama belum stabil, jadi
+    /// nilai terkecil yang masuk akal yang dipakai.
+    inset_coba: u8,
     /// Kolom cari sedang dipegang kursor ketik; pintasan huruf dimatikan.
     search_focus: bool,
 
@@ -517,6 +520,7 @@ impl App {
             suka,
             show_queue: false,
             inset_atas: 0.0,
+            inset_coba: 0,
             search_focus: false,
             queue: Vec::new(),
             current: None,
@@ -3753,12 +3757,19 @@ impl eframe::App for App {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Beberapa frame pertama ukuran inset belum benar (pernah terbaca dua
+        // kali lipat tinggi bilah status). Ambil nilai terkecil selama 40
+        // frame pertama, lalu berhenti membaca.
         #[cfg(target_os = "android")]
-        if self.inset_atas == 0.0 {
+        if self.inset_coba < 40 {
+            self.inset_coba += 1;
             let px = crate::jembatan_android::inset_atas_px();
             if px > 0.0 {
-                self.inset_atas = px / ctx.pixels_per_point().max(0.5);
-                eprintln!("[swara] inset atas {:.1} titik", self.inset_atas);
+                let titik = px / ctx.pixels_per_point().max(0.5);
+                if self.inset_atas == 0.0 || titik < self.inset_atas {
+                    self.inset_atas = titik;
+                    eprintln!("[swara] inset atas {:.1} titik", self.inset_atas);
+                }
             }
         }
         self.sinkron_suka();

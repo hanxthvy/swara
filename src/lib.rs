@@ -11,6 +11,7 @@ pub mod ctl;
 #[cfg(not(target_os = "linux"))]
 #[path = "ctl_stub.rs"]
 pub mod ctl;
+#[cfg(not(target_os = "android"))]
 pub mod cepat;
 pub mod conductor;
 pub mod paths;
@@ -76,6 +77,7 @@ pub fn run_gui(launch: Launch) -> anyhow::Result<()> {
     // berkas keadaannya dibaca islet tanpa polling.
     let suka = ctl::bersama();
     ctl::spawn(worker.pintu(), suka.clone());
+    #[cfg(not(target_os = "android"))]
     eprintln!("[swara] mulai, mpris={}", mpris_ctl.is_some());
 
     let mut opts = eframe::NativeOptions {
@@ -104,6 +106,11 @@ pub fn run_gui(launch: Launch) -> anyhow::Result<()> {
             // egui tidak pernah `update()` — lagu habis tapi antrean tidak
             // lanjut. `Context::request_repaint` dari thread lain membangunkan
             // event loop tanpa menunggu compositor.
+            //
+            // Di Android ini tidak dipakai: tidak ada compositor yang berhenti
+            // mengirim frame, dan tombol dari kartu pemutar sudah ditangani
+            // jalur JNI. Membiarkannya jalan hanya membangunkan loop terus.
+            #[cfg(not(target_os = "android"))]
             {
                 let ctx = cc.egui_ctx.clone();
                 std::thread::spawn(move || loop {

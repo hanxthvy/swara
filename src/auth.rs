@@ -7,13 +7,17 @@
 //! `Authorization: SAPISIDHASH` dihitung dari SAPISID seperti yang dilakukan
 //! web YouTube sendiri.
 
+#[cfg(target_os = "linux")]
 use aes::cipher::{block_padding::Pkcs7, BlockDecryptMut, KeyIvInit};
-use anyhow::{anyhow, bail, Result};
+#[cfg(target_os = "linux")]
+use anyhow::anyhow;
+use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+#[cfg(target_os = "linux")]
 type Aes128CbcDec = cbc::Decryptor<aes::Aes128>;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -123,6 +127,7 @@ fn key_peanuts() -> [u8; 16] {
     out
 }
 
+#[cfg(target_os = "linux")]
 fn decrypt_v10(blob: &[u8], key: &[u8; 16]) -> Option<String> {
     if blob.len() <= 3 {
         return None;
@@ -142,6 +147,8 @@ fn decrypt_v10(blob: &[u8], key: &[u8; 16]) -> Option<String> {
 }
 
 /// Ambil cookie youtube.com/google.com dari profil Chromium di `dir`.
+/// Hanya Linux: di Windows/macOS cookie dienkripsi lewat DPAPI/Keychain.
+#[cfg(target_os = "linux")]
 pub fn read_profile(dir: &Path) -> Result<BTreeMap<String, String>> {
     let db = [dir.join("Cookies"), dir.join("Network").join("Cookies")]
         .into_iter()
@@ -204,6 +211,16 @@ pub fn read_profile(dir: &Path) -> Result<BTreeMap<String, String>> {
     Ok(jar.into_iter().map(|(k, (_, v))| (k, v)).collect())
 }
 
+/// Di luar Linux tidak ada kode Chromium sama sekali: AES dan SQLite tidak
+/// ikut dibangun, jadi binari Windows/macOS lebih kecil.
+#[cfg(not(target_os = "linux"))]
+fn import_chromium() -> Result<Session> {
+    bail!(
+        "impor sesi Chromium baru didukung di Linux. Di sistem ini Swara tetap \
+         bisa mencari dan memutar, hanya fitur akun yang belum aktif"
+    );
+}
+
 /// Impor sesi. Di Android diambil dari WebView, di Linux dari profil Chromium.
 pub fn import_any() -> Result<Session> {
     #[cfg(target_os = "android")]
@@ -248,16 +265,8 @@ fn import_webview() -> Result<Session> {
 }
 
 /// Muat sesi dari profil Chromium pertama yang punya cookie login.
+#[cfg(target_os = "linux")]
 fn import_chromium() -> Result<Session> {
-    // Chromium di Linux mengenkripsi cookie dengan kunci dari "peanuts".
-    // Di Windows kuncinya lewat DPAPI dan di macOS lewat Keychain, jadi impor
-    // sesi belum bisa dilakukan di sana; Swara tetap jalan tanpa akun.
-    if !cfg!(target_os = "linux") {
-        bail!(
-            "impor sesi Chromium baru didukung di Linux. Di sistem ini Swara tetap \
-             bisa mencari dan memutar, hanya fitur akun yang belum aktif"
-        );
-    }
     let mut last = None;
     for dir in candidates() {
         match read_profile(&dir) {
