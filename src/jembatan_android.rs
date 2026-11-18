@@ -12,7 +12,7 @@
 use crate::player::{Progress, Remote};
 use jni::objects::{GlobalRef, JClass, JObject, JString, JValue};
 use jni::{JNIEnv, JavaVM};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
@@ -32,6 +32,18 @@ pub const AKSI_SUKA: i32 = 5;
 /// pernah dijalankan sampai aplikasi dibuka lagi.
 static REMOTE: OnceLock<Remote> = OnceLock::new();
 static SNAP: OnceLock<Arc<Mutex<Progress>>> = OnceLock::new();
+/// Konduktor memegang antrean di luar UI, jadi tombol berikutnya/sebelumnya
+/// tetap bekerja saat jendela tidak menggambar.
+static COND: OnceLock<crate::conductor::Ctl> = OnceLock::new();
+/// Keadaan konduktor (antrean + lagu aktif), dibaca untuk menyegarkan kartu
+/// sistem setelah tombol berikutnya/sebelumnya ditekan dari sana.
+static COND_STATE: OnceLock<Mutex<std::sync::Arc<std::sync::Mutex<crate::conductor::Cond>>>> =
+    OnceLock::new();
+/// Judul/artis/sampul terakhir yang dikirim ke kartu sistem; dipakai untuk
+/// menyegarkan kartu setelah tombol di sana ditekan saat jendela diam.
+static LAST_MAIN: AtomicBool = AtomicBool::new(false);
+static INFO: Mutex<(String, String, String, bool)> =
+    Mutex::new((String::new(), String::new(), String::new(), false));
 
 /// Detak terakhir `App::update`, dalam mikrodetik sejak proses mulai.
 static DETAK: AtomicU64 = AtomicU64::new(0);
@@ -46,9 +58,45 @@ pub fn detak() {
     DETAK.store(sekarang_us(), Ordering::Relaxed);
 }
 
-pub fn pasang_kendali(remote: Remote, snap: Arc<Mutex<Progress>>) {
+pub fn pasang_kendali(
+    remote: Remote,
+    snap: Arc<Mutex<Progress>>,
+    cond: crate::conductor::Ctl,
+    cond_state: Arc<Mutex<crate::conductor::Cond>>,
+) {
     let _ = REMOTE.set(remote);
     let _ = SNAP.set(snap);
+    let _ = COND.set(cond);
+    let _ = COND_STATE.set(Mutex::new(cond_state));
+    // Kartu sistem ikut berganti saat konduktor memutar lagu berikutnya
+    // sendiri (lagu habis di latar). Tanpa ini notifikasi tetap menunjuk lagu
+    // lama dan tidak ada tombol yang bisa dipakai melanjutkan.
+    std::thread::spawn(|| {
+        let mut seq_akhir = 0u64;
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(700));
+            let seq = match COND_STATE.get().and_then(|m| m.lock().ok()) {
+                Some(g) => match g.lock() {
+                    Ok(c) => c.seq,
+                    Err(_) => continue,
+                },
+                None => continue,
+            };
+            if seq != seq_akhir {
+                seq_akhir = seq;
+                segarkan_kartu(Some(true));
+            } else if main_sekarang() != last_main() {
+                // main/pause berubah tanpa lewat UI (mis. lagu habis).
+                segarkan_kartu(None);
+            }
+        }
+    });
+}
+
+/// Keadaan main yang terakhir dikirim ke kartu, untuk mendeteksi perubahan
+/// yang terjadi tanpa lewat UI.
+fn last_main() -> bool {
+    LAST_MAIN.load(Ordering::Relaxed)
 }
 
 /// Jendela dianggap hidup kalau ada detak dalam 1,2 detik terakhir.
@@ -69,18 +117,78 @@ fn jalankan_langsung(aksi: i32) -> bool {
     };
     eprintln!("[swara] kendali langsung aksi={aksi} main={}", main_sekarang());
     match aksi {
-        AKSI_PAUSE => r.pause(),
-        AKSI_PLAY => r.resume(),
-        AKSI_TOGGLE => {
+        AKSI_NEXT | AKSI_PREV => {
+            let Some(c) = COND.get() else { return false };
+            let lama = lagu_sekarang().map(|t| t.id);
+            // Saat window diam, konduktor tidur pada receiver 120ms. Beri jeda
+            // sedikit supaya Step masuk ke antrean setelah receiver bangun,
+            // bukan bersamaan dengan timeout yang baru saja lewat.
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(30));
+                c.step(if aksi == AKSI_NEXT { 1 } else { -1 });
+                for _ in 0..60 {
+                    std::thread::sleep(std::time::Duration::from_millis(250));
+                    let id_baru = lagu_sekarang().map(|t| t.id);
+                    if id_baru.is_some() && id_baru != lama {
+                        break;
+                    }
+                }
+                segarkan_kartu(None);
+            });
+        }
+        AKSI_PAUSE => {
+            r.pause();
+            segarkan_kartu(Some(false));
+        }
+        AKSI_PLAY | AKSI_TOGGLE => {
             if main_sekarang() {
                 r.pause();
+                segarkan_kartu(Some(false));
             } else {
                 r.resume();
+                segarkan_kartu(Some(true));
             }
         }
         _ => return false,
     }
     true
+}
+
+/// Lagu yang sedang dipegang konduktor, kalau ada.
+fn lagu_sekarang() -> Option<crate::api::Track> {
+    let g = COND_STATE.get()?.lock().ok()?;
+    let c = g.lock().ok()?;
+    c.track.clone()
+}
+
+/// Kirim ulang keadaan terakhir ke kartu pemutar Android. Tanpa ini ikon di
+/// kartu tetap menunjukkan keadaan lama, dan tombol main tidak bisa melanjutkan.
+fn segarkan_kartu(main: Option<bool>) {
+    // Kalau konduktor sudah memegang lagu lain (habis atau lompat), kartu
+    // memakai lagu itu, bukan judul lama yang tersimpan.
+    let hidup = lagu_sekarang();
+    let (judul, artis, sampul, suka) = match (hidup, INFO.lock()) {
+        (Some(t), Ok(i)) => (t.title.clone(), t.artist.clone(), t.thumb.clone(), i.3),
+        (None, Ok(i)) => i.clone(),
+        _ => return,
+    };
+    let (pos, dur, jalan) = match SNAP.get() {
+        Some(s) => {
+            let g = s.lock().unwrap();
+            (g.pos, g.dur, g.playing)
+        }
+        None => (0.0, 0.0, false),
+    };
+    perbarui_media(
+        &judul,
+        &artis,
+        &sampul,
+        suka,
+        main.unwrap_or(jalan),
+        pos,
+        dur,
+    );
+    LAST_MAIN.store(main.unwrap_or(jalan), Ordering::Relaxed);
 }
 
 static VM: OnceLock<JavaVM> = OnceLock::new();
@@ -211,9 +319,8 @@ pub extern "system" fn Java_com_hanxthvy_swara_Pemutar_kendaliNative(
     _kelas: jni::sys::jclass,
     aksi: jni::sys::jint,
 ) {
-    // Saat jendela tidak menggambar, jeda/lanjut dikerjakan langsung di sini.
-    // Aksi lain (berikutnya/sebelumnya, suka) tetap lewat UI karena butuh
-    // antrean dan sesi akun.
+    // Saat jendela tidak menggambar, jeda/lanjut/berikutnya/sebelumnya
+    // dikerjakan langsung di sini. Suka tetap lewat UI karena butuh sesi akun.
     if !ui_hidup() && jalankan_langsung(aksi) {
         return;
     }
@@ -240,6 +347,11 @@ pub fn perbarui_media(
 ) {
     static TERAKHIR: Mutex<(String, String, String, bool, bool, Option<std::time::Instant>)> =
         Mutex::new((String::new(), String::new(), String::new(), false, false, None));
+    if let Ok(mut i) = INFO.lock() {
+        if i.0 != judul || i.1 != artis || i.2 != sampul || i.3 != suka {
+            *i = (judul.to_string(), artis.to_string(), sampul.to_string(), suka);
+        }
+    }
     let perlu = {
         let Ok(mut g) = TERAKHIR.lock() else { return };
         let berubah = g.0 != judul || g.1 != artis || g.2 != sampul || g.3 != suka || g.4 != main;
@@ -299,8 +411,17 @@ pub fn perbarui_media(
     });
 }
 
+/// Tinggi bilah navigasi sistem (area gestur) dalam piksel fisik.
+pub fn inset_bawah_px() -> f32 {
+    perkara("insetBawah")
+}
+
 /// Tinggi bilah status sistem, dalam piksel fisik. Nol kalau tidak terbaca.
 pub fn inset_atas_px() -> f32 {
+    perkara("insetAtas")
+}
+
+fn perkara(nama: &str) -> f32 {
     dengan_env(|e| {
         let Some(akt) = AKTIVITAS.get() else { return 0.0 };
         let Some(k) = kelas(e, "com.hanxthvy.swara.Layar") else {
@@ -308,7 +429,7 @@ pub fn inset_atas_px() -> f32 {
         };
         let hasil = match e.call_static_method(
             &k,
-            "insetAtas",
+            nama,
             "(Landroid/content/Context;)F",
             &[JValue::Object(akt.as_obj())],
         ) {

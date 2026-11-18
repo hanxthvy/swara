@@ -435,6 +435,9 @@ pub struct App {
     /// Tinggi bilah status Android dalam titik; dipakai layar ponsel supaya
     /// judul tidak tertutup jam dan notifikasi.
     inset_atas: f32,
+    /// Tinggi area gestur Android di bawah, supaya tab paling bawah tidak
+    /// tertimpa bilah navigasi.
+    inset_bawah: f32,
     /// Berapa kali inset dibaca; beberapa frame pertama belum stabil, jadi
     /// nilai terkecil yang masuk akal yang dipakai.
     inset_coba: u8,
@@ -520,6 +523,7 @@ impl App {
             suka,
             show_queue: false,
             inset_atas: 0.0,
+            inset_bawah: 0.0,
             inset_coba: 0,
             search_focus: false,
             queue: Vec::new(),
@@ -2618,25 +2622,56 @@ impl App {
     fn tab_cari(&mut self, ui: &mut Ui) {
         let s = self.scheme;
 
+        // Saran ditumpuk ke bawah, satu baris per saran. Dulu digeser ke
+        // samping, dan di layar ponsel hampir semua saran jadi tidak terbaca.
         if self.show_suggest && !self.suggest.is_empty() {
-            let list = self.suggest.clone();
+            let list: Vec<String> = self.suggest.iter().take(8).cloned().collect();
+            let mut dipilih: Option<String> = None;
             ui.add_space(10.0);
-            ScrollArea::horizontal()
+            egui::ScrollArea::vertical()
                 .id_salt("sug")
+                .max_height(260.0)
                 .auto_shrink([false, true])
                 .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 8.0;
-                        for sug in list {
-                            if self.chip(ui, &sug, false).clicked() {
-                                self.query = sug.clone();
-                                self.searched = sug.clone();
-                                self.show_suggest = false;
-                                self.worker.send(Job::Search(sug));
-                            }
+                    for sug in list {
+                        let (r, h) = ui.allocate_exact_size(
+                            vec2(ui.available_width(), 38.0),
+                            Sense::click(),
+                        );
+                        if h.hovered() {
+                            ui.painter().rect_filled(
+                                r,
+                                Rounding::same(10.0),
+                                s.on_surface.gamma_multiply(0.06),
+                            );
                         }
-                    });
+                        draw_icon(
+                            ui.painter(),
+                            Icon::Search,
+                            Rect::from_center_size(
+                                pos2(r.left() + 22.0, r.center().y),
+                                vec2(15.0, 15.0),
+                            ),
+                            s.on_surface_variant,
+                        );
+                        ui.painter().text(
+                            pos2(r.left() + 42.0, r.center().y),
+                            Align2::LEFT_CENTER,
+                            &sug,
+                            FontId::proportional(13.5),
+                            s.on_surface,
+                        );
+                        if h.clicked() {
+                            dipilih = Some(sug);
+                        }
+                    }
                 });
+            if let Some(sug) = dipilih {
+                self.query = sug.clone();
+                self.searched = sug.clone();
+                self.show_suggest = false;
+                self.worker.send(Job::Search(sug));
+            }
         }
 
         ui.add_space(12.0);
@@ -2779,6 +2814,23 @@ impl App {
             });
             return;
         };
+        // Sampul di kepala koleksi: tanpa ini halaman album terasa kosong, dan
+        // itulah yang dulu terlihat seperti "fotonya tidak muncul".
+        if !c.thumb.is_empty() {
+            let ctx = ui.ctx().clone();
+            self.ensure_thumb(&ctx, &c.thumb);
+            let ukuran = 96.0;
+            let (r, _) = ui.allocate_exact_size(vec2(ukuran, ukuran), Sense::hover());
+            ui.painter()
+                .rect_filled(r, Rounding::same(shape::RAD_CARD), s.surface_high);
+            if let Some(tex) = self.thumb_of(&c.thumb) {
+                egui::Image::new((tex.id(), tex.size_vec2()))
+                    .fit_to_exact_size(vec2(ukuran, ukuran))
+                    .rounding(Rounding::same(shape::RAD_CARD))
+                    .paint_at(ui, r);
+            }
+            ui.add_space(8.0);
+        }
         ui.horizontal(|ui| {
             if self.icon_button(ui, Icon::Prev, 32.0, Btn::Ghost).clicked() {
                 self.view = View::Feed;
@@ -3076,8 +3128,10 @@ impl App {
                     }
                 }
 
-                // ---- seksi berikutnya: grid 3 kolom dengan judul di atas gambar
-                for row in rows.iter().skip(1).take(3) {
+                // ---- seksi berikutnya: grid 3 kolom dengan judul di atas gambar.
+                // Dulu cuma tiga seksi, jadi beranda ponsel jauh lebih pendek
+                // daripada desktop tanpa alasan.
+                for row in rows.iter().skip(1) {
                     ui.add_space(20.0);
                     ui.horizontal(|ui| {
                         if row.title.to_lowercase().contains("pintasan") {
@@ -3210,13 +3264,19 @@ impl App {
     /// Kerangka layar ponsel: header, isi tab, mini player, bilah tab.
     fn mobile(&mut self, ctx: &egui::Context, _w: f32) {
         let s = self.scheme;
+        let bawah = self.inset_bawah;
         egui::TopBottomPanel::bottom("mnav")
             .resizable(false)
-            .exact_height(56.0)
+            .exact_height(56.0 + bawah)
             .frame(
                 egui::Frame::none()
                     .fill(s.surface_low)
-                    .inner_margin(egui::Margin::symmetric(0.0, 2.0)),
+                    .inner_margin(egui::Margin {
+                        left: 0.0,
+                        right: 0.0,
+                        top: 2.0,
+                        bottom: 2.0 + bawah,
+                    }),
             )
             .show(ctx, |ui| self.mobile_nav(ui));
 
@@ -3310,8 +3370,15 @@ impl App {
         }
         // Cari sendiri setelah berhenti mengetik: papan ketik Android tidak
         // mengirim Enter ke egui, dulu kolom ini diam saja setelah diketik.
+        // Saran dibiarkan tampil lebih dulu — dulu pencarian langsung jalan
+        // setelah 800 ms sehingga daftar saran cuma berkelebat.
         if let Some(at) = self.cari_at {
-            if at.elapsed() > Duration::from_millis(800) {
+            let tunggu = if self.show_suggest && !self.suggest.is_empty() {
+                Duration::from_millis(2600)
+            } else {
+                Duration::from_millis(900)
+            };
+            if at.elapsed() > tunggu {
                 self.cari_at = None;
                 let q = self.query.trim().to_string();
                 if !q.is_empty() && q != self.searched {
@@ -3338,6 +3405,7 @@ impl App {
         let mut tutup = false;
         let mut seek_ke: Option<f64> = None;
         let atas = self.inset_atas;
+        let bawah = self.inset_bawah;
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::none()
@@ -3346,7 +3414,7 @@ impl App {
                         left: 18.0,
                         right: 18.0,
                         top: 12.0 + atas,
-                        bottom: 12.0,
+                        bottom: 12.0 + bawah,
                     }),
             )
             .show(ctx, |ui| {
@@ -3357,33 +3425,6 @@ impl App {
                     if resp.clicked() {
                         tutup = true;
                     }
-                    ui.add_space(6.0);
-                    let (p1, _) = ui.allocate_exact_size(vec2(46.0, 30.0), Sense::hover());
-                    ui.painter()
-                        .rect_filled(p1, Rounding::same(15.0), s.surface_high);
-                    draw_icon(
-                        ui.painter(),
-                        Icon::Volume,
-                        Rect::from_center_size(p1.center(), vec2(17.0, 17.0)),
-                        s.on_surface,
-                    );
-                    ui.add_space(6.0);
-                    let (p2, _) = ui.allocate_exact_size(vec2(46.0, 30.0), Sense::hover());
-                    ui.painter()
-                        .rect_filled(p2, Rounding::same(15.0), s.surface_high);
-                    draw_icon(
-                        ui.painter(),
-                        Icon::Play,
-                        Rect::from_center_size(p2.center(), vec2(15.0, 15.0)),
-                        s.on_surface_variant,
-                    );
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        let (m, _) = ui.allocate_exact_size(vec2(34.0, 34.0), Sense::hover());
-                        draw_icon(ui.painter(), Icon::More, m, s.on_surface);
-                        ui.add_space(4.0);
-                        let (c, _) = ui.allocate_exact_size(vec2(34.0, 34.0), Sense::hover());
-                        draw_icon(ui.painter(), Icon::Cast, c, s.on_surface);
-                    });
                 });
                 ui.add_space(10.0);
 
@@ -3415,11 +3456,7 @@ impl App {
                 // ---- judul + artis
                 let judul = cur.as_ref().map(|t| t.title.clone()).unwrap_or_default();
                 let artis = cur.as_ref().map(|t| t.artist.clone()).unwrap_or_default();
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(short(&judul, 30)).size(22.0).strong().color(s.on_surface));
-                    let (r, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
-                    draw_icon(ui.painter(), Icon::Next, r, s.on_surface_variant);
-                });
+                ui.label(RichText::new(short(&judul, 30)).size(22.0).strong().color(s.on_surface));
                 ui.label(RichText::new(short(&artis, 36)).size(13.0).color(s.on_surface_variant));
                 ui.add_space(12.0);
 
@@ -3763,12 +3800,21 @@ impl eframe::App for App {
         #[cfg(target_os = "android")]
         if self.inset_coba < 40 {
             self.inset_coba += 1;
+            let ppp = ctx.pixels_per_point().max(0.5);
             let px = crate::jembatan_android::inset_atas_px();
             if px > 0.0 {
-                let titik = px / ctx.pixels_per_point().max(0.5);
+                let titik = px / ppp;
                 if self.inset_atas == 0.0 || titik < self.inset_atas {
                     self.inset_atas = titik;
                     eprintln!("[swara] inset atas {:.1} titik", self.inset_atas);
+                }
+            }
+            let pb = crate::jembatan_android::inset_bawah_px();
+            if pb > 0.0 {
+                let titik = pb / ppp;
+                if self.inset_bawah == 0.0 || titik < self.inset_bawah {
+                    self.inset_bawah = titik;
+                    eprintln!("[swara] inset bawah {:.1} titik", self.inset_bawah);
                 }
             }
         }

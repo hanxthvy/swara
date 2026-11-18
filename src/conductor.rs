@@ -135,8 +135,30 @@ pub fn spawn(
                 let Some(t) = next else { continue };
 
                 eprintln!("[konduktor] lanjut ke {}", t.id);
-                if !start(&api, &remote, &shared, t) {
-                    continue;
+                // Jaringan ponsel bisa putus sebentar saat layar mati. Dulu satu
+                // kegagalan membuat pemutaran berhenti diam-diam; sekarang dicoba
+                // beberapa kali, lalu lompat ke lagu berikutnya.
+                let mut jalan = false;
+                for coba in 0..3u64 {
+                    if start(&api, &remote, &shared, t.clone()) {
+                        jalan = true;
+                        break;
+                    }
+                    eprintln!("[konduktor] gagal memulai {}, coba {}", t.id, coba + 1);
+                    std::thread::sleep(Duration::from_millis(800 * (coba + 1)));
+                }
+                if !jalan {
+                    let lain = {
+                        let mut g = shared.lock().unwrap();
+                        g.idx = (g.idx + 1) % g.queue.len().max(1);
+                        g.queue.get(g.idx).cloned()
+                    };
+                    if let Some(n) = lain {
+                        if n.id != t.id {
+                            eprintln!("[konduktor] lewati ke {}", n.id);
+                            let _ = start(&api, &remote, &shared, n);
+                        }
+                    }
                 }
             }
         });

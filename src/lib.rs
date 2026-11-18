@@ -59,18 +59,18 @@ pub fn run_gui(launch: Launch) -> anyhow::Result<()> {
     let mut player = Player::new()?;
     let remote = player.remote();
     #[cfg(target_os = "android")]
-    {
-        // Tombol dari kartu pemutar bawaan Android harus tetap bekerja saat
-        // jendela tidak menggambar di latar.
-        let (snap2, _) = player.watch();
-        jembatan_android::pasang_kendali(remote.clone(), snap2);
-    }
+    let player_watch = player.watch();
     let (snap, ends) = player.watch();
     let worker = Worker::new(api.clone());
     let api2 = api.clone();
     // Konduktor dan jembatan MPRIS hidup sebelum jendela dibuka: keduanya
     // harus tetap jalan saat `update` berhenti (jendela di workspace lain).
     let (cond, cond_ctl) = conductor::spawn(api2.clone(), remote.clone(), snap.clone(), ends.clone());
+    #[cfg(target_os = "android")]
+    {
+        let (snap2, _) = player_watch.clone();
+        jembatan_android::pasang_kendali(remote.clone(), snap2, cond_ctl.clone(), cond.clone());
+    }
     let mpris = mpris::Mpris::spawn();
     let mpris_ctl = bridge::spawn(mpris, remote.clone(), cond_ctl, cond.clone(), snap.clone());
     // Kendali luar (islet): tombol suka di pill notch memakai soket ini, dan
@@ -101,6 +101,13 @@ pub fn run_gui(launch: Launch) -> anyhow::Result<()> {
         "Swara",
         opts,
         Box::new(move |cc| {
+            // Layar sentuh: geser pelan sering dihitung sebagai klik, dan itu
+            // yang membuat beranda melompat ke Koleksi saat digulir.
+            #[cfg(target_os = "android")]
+            cc.egui_ctx.options_mut(|o| {
+                o.input_options.max_click_dist = 10.0;
+                o.input_options.max_click_duration = 0.45;
+            });
             // Detak dari luar jendela. Kalau jendela disembunyikan (pindah
             // workspace), compositor berhenti mengirim frame callback sehingga
             // egui tidak pernah `update()` — lagu habis tapi antrean tidak
