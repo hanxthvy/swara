@@ -14,17 +14,17 @@ jobs:
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
-    # Linux dibangun di dalam Ubuntu 22.04 supaya glibc yang dibutuhkan cukup
-    # tua dan binary-nya jalan di distro lain. Runner terbaru memakai glibc
-    # 2.43, dan hasilnya menolak jalan di mesin dengan glibc 2.41.
-    container: ${{ matrix.container }}
+    # Linux dibangun di runner ubuntu-22.04 supaya glibc yang dibutuhkan cukup
+    # tua (2.35). Runner terbaru memakai glibc 2.43 dan binary-nya menolak
+    # jalan di mesin dengan glibc 2.41.
     strategy:
       fail-fast: false
       matrix:
         include:
           - name: linux-x86_64
-            os: ubuntu-latest
-            container: ubuntu:22.04
+            # Runner 22.04 langsung: glibc 2.35, dan apt-nya tidak perlu
+            # menembus mirror dari dalam container (itu yang bikin gagal).
+            os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             asset: swara-linux-x86_64.tar.gz
           - name: windows-x86_64
