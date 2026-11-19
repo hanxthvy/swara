@@ -18,6 +18,7 @@ pub mod paths;
 pub mod player;
 pub mod stream;
 pub mod theme;
+pub mod tokens;
 pub mod ui;
 pub mod worker;
 
@@ -66,16 +67,24 @@ pub fn run_gui(launch: Launch) -> anyhow::Result<()> {
     // Konduktor dan jembatan MPRIS hidup sebelum jendela dibuka: keduanya
     // harus tetap jalan saat `update` berhenti (jendela di workspace lain).
     let (cond, cond_ctl) = conductor::spawn(api2.clone(), remote.clone(), snap.clone(), ends.clone());
+    // Kendali luar (islet) dan tombol suka di kartu Android memakai keadaan ini.
+    let suka = ctl::bersama();
     #[cfg(target_os = "android")]
     {
         let (snap2, _) = player_watch.clone();
-        jembatan_android::pasang_kendali(remote.clone(), snap2, cond_ctl.clone(), cond.clone());
+        jembatan_android::pasang_kendali(
+            remote.clone(),
+            snap2,
+            cond_ctl.clone(),
+            cond.clone(),
+            worker.pintu(),
+            suka.clone(),
+        );
     }
     let mpris = mpris::Mpris::spawn();
     let mpris_ctl = bridge::spawn(mpris, remote.clone(), cond_ctl, cond.clone(), snap.clone());
     // Kendali luar (islet): tombol suka di pill notch memakai soket ini, dan
     // berkas keadaannya dibaca islet tanpa polling.
-    let suka = ctl::bersama();
     ctl::spawn(worker.pintu(), suka.clone());
     #[cfg(not(target_os = "android"))]
     eprintln!("[swara] mulai, mpris={}", mpris_ctl.is_some());

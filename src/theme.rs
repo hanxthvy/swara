@@ -6,6 +6,7 @@
 //! benih tetap disimpan pada permukaan (sangat tipis) supaya panel tidak terasa
 //! mati, sementara teks dan aksen tetap netral.
 
+use crate::tokens::{tipe, ukuran, warna};
 use egui::Color32;
 
 #[derive(Clone, Copy)]
@@ -28,6 +29,8 @@ pub struct Scheme {
     pub on_surface_variant: Color32,
     pub outline: Color32,
     pub outline_variant: Color32,
+    /// Garis kolom isian saat fokus (token `garis-isian`).
+    pub outline_fokus: Color32,
 }
 
 /// Hue dan saturasi kasar dari warna benih.
@@ -97,20 +100,21 @@ pub fn scheme(dark: bool, seed: Option<[u8; 3]>) -> Scheme {
         let tint = |l: f32, sat: f32| hsl(h, s * sat, l);
         Scheme {
             dark,
-            primary: Color32::WHITE,
-            on_primary: Color32::from_rgb(0x12, 0x12, 0x12),
-            primary_container: Color32::from_rgb(0x25, 0x25, 0x25),
-            on_primary_container: Color32::WHITE,
-            secondary_container: Color32::from_rgb(0x1f, 0x1f, 0x1f),
-            on_secondary_container: Color32::from_rgb(0xb3, 0xb3, 0xb3),
-            surface: mix(Color32::from_rgb(0x12, 0x12, 0x12), tint(0.07, 0.05), 0.35),
-            surface_low: mix(Color32::from_rgb(0x18, 0x18, 0x18), tint(0.09, 0.05), 0.35),
-            surface_high: mix(Color32::from_rgb(0x1f, 0x1f, 0x1f), tint(0.11, 0.05), 0.30),
-            surface_highest: mix(Color32::from_rgb(0x25, 0x25, 0x25), tint(0.14, 0.05), 0.30),
-            on_surface: Color32::WHITE,
-            on_surface_variant: Color32::from_rgb(0xb3, 0xb3, 0xb3),
-            outline: Color32::from_rgb(0x4d, 0x4d, 0x4d),
-            outline_variant: Color32::from_rgb(0x2a, 0x2a, 0x2a),
+            primary: warna::TEKS,
+            on_primary: warna::LATAR,
+            primary_container: warna::KARTU,
+            on_primary_container: warna::TEKS,
+            secondary_container: warna::ISIAN,
+            on_secondary_container: warna::REDUP,
+            surface: mix(warna::LATAR, tint(0.07, 0.05), 0.35),
+            surface_low: mix(warna::PERMUKAAN, tint(0.09, 0.05), 0.35),
+            surface_high: mix(warna::ISIAN, tint(0.11, 0.05), 0.30),
+            surface_highest: mix(warna::KARTU, tint(0.14, 0.05), 0.30),
+            on_surface: warna::TEKS,
+            on_surface_variant: warna::REDUP,
+            outline: warna::GARIS,
+            outline_variant: warna::GARIS_ISIAN.gamma_multiply(0.55),
+            outline_fokus: warna::GARIS_ISIAN,
         }
     } else {
         Scheme {
@@ -129,6 +133,7 @@ pub fn scheme(dark: bool, seed: Option<[u8; 3]>) -> Scheme {
             on_surface_variant: hsl(h, 0.14, 0.38),
             outline: hsl(h, 0.10, 0.52),
             outline_variant: hsl(h, 0.10, 0.78),
+            outline_fokus: hsl(h, 0.10, 0.44),
         }
     }
 }
@@ -136,64 +141,66 @@ pub fn scheme(dark: bool, seed: Option<[u8; 3]>) -> Scheme {
 /// Skala tipe kanvas: judul halaman 24, seksi 18, hero 40, lagu 14,
 /// isi 14, subteks 12–13.5, label kapital 10.5–11.5.
 pub mod type_scale {
+    use crate::tokens::tipe;
     use egui::Color32;
     use egui::RichText;
 
     /// Judul album besar di kepala koleksi.
     pub fn hero(text: impl Into<String>, c: Color32) -> RichText {
-        RichText::new(text).size(40.0).color(c).strong()
+        RichText::new(text).size(tipe::JUDUL_ALBUM).color(c).strong()
     }
     /// Judul halaman.
     pub fn page(text: impl Into<String>, c: Color32) -> RichText {
-        RichText::new(text).size(24.0).color(c).strong()
+        RichText::new(text).size(tipe::JUDUL_HALAMAN).color(c).strong()
     }
     /// Judul seksi rak.
     pub fn section(text: impl Into<String>, c: Color32) -> RichText {
-        RichText::new(text).size(18.0).color(c).strong()
+        RichText::new(text).size(tipe::JUDUL_SEKSI).color(c).strong()
     }
     pub fn display(text: impl Into<String>, c: Color32) -> RichText {
         RichText::new(text).size(30.0).color(c).strong()
     }
     pub fn headline(text: impl Into<String>, c: Color32) -> RichText {
-        RichText::new(text).size(24.0).color(c).strong()
+        RichText::new(text).size(tipe::JUDUL_HALAMAN).color(c).strong()
     }
     pub fn title(text: impl Into<String>, c: Color32) -> RichText {
-        RichText::new(text).size(18.0).color(c).strong()
+        RichText::new(text).size(tipe::JUDUL_SEKSI).color(c).strong()
     }
     /// Judul lagu atau kartu.
     pub fn title_m(text: impl Into<String>, c: Color32) -> RichText {
-        RichText::new(text).size(14.0).color(c).strong()
+        RichText::new(text).size(tipe::JUDUL_LAGU).color(c).strong()
     }
     pub fn body(text: impl Into<String>, c: Color32) -> RichText {
-        RichText::new(text).size(14.0).color(c)
+        RichText::new(text).size(tipe::ISI).color(c)
     }
     pub fn body_s(text: impl Into<String>, c: Color32) -> RichText {
-        RichText::new(text).size(12.5).color(c)
+        RichText::new(text).size(tipe::SUB).color(c)
     }
     /// Label kecil: kapital, tebal, dipakai untuk PUSTAKA dan label tombol.
     pub fn label(text: impl Into<String>, c: Color32) -> RichText {
         RichText::new(text.into().to_uppercase())
-            .size(11.0)
+            .size(tipe::LABEL)
             .color(c)
             .strong()
     }
     /// Angka waktu di ujung bilah durasi.
     pub fn time(text: impl Into<String>, c: Color32) -> RichText {
-        RichText::new(text).size(10.5).color(c)
+        RichText::new(text).size(tipe::WAKTU).color(c)
     }
 }
 
 /// Bahasa bentuk kanvas: pil untuk tombol, lingkaran untuk putar, 4–8 untuk
 /// kartu dan sampul.
 pub mod shape {
-    pub const CARD: f32 = 8.0;
-    /// Radius sampul kartu.
-    pub const RAD_CARD: f32 = 6.0;
-    /// Radius sampul kecil di baris lagu.
-    pub const RAD_THUMB: f32 = 4.0;
-    pub const SHEET: f32 = 16.0;
+    use crate::tokens::ukuran;
+    pub const CARD: f32 = ukuran::RADIUS_KARTU;
+    /// Radius sampul kartu dan sampul baris.
+    pub const RAD_CARD: f32 = ukuran::RADIUS_SAMPUL;
+    pub const RAD_THUMB: f32 = ukuran::RADIUS_SAMPUL;
+    pub const SHEET: f32 = ukuran::RADIUS_KARTU * 2.0;
+    /// Pil: separuh tinggi tombolnya.
     pub const CHIP: f32 = 15.0;
     pub const FIELD: f32 = 22.0;
     /// Baris aktif di daftar lagu.
-    pub const ROW: f32 = 6.0;
+    pub const ROW: f32 = ukuran::RADIUS_SAMPUL;
 }

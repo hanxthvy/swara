@@ -47,6 +47,8 @@ public class Pemutar {
     private static Context app;
     private static boolean mintaNotif = false;
     private static boolean sukaSekarang = false;
+    /** Durasi terakhir yang diketahui; dipakai saat lagu baru belum melapor. */
+    private static long durTerakhir = 0;
     private static String urlSeni = "";
     private static android.graphics.Bitmap seni = null;
 
@@ -118,12 +120,18 @@ public class Pemutar {
             muatSeni(url);
         }
 
-        perbaruiMetadata(durMs);
+        if (durMs > 0) {
+            durTerakhir = durMs;
+        }
+        // Tanpa durasi, Android menggambar state NONE dan bilah durasi di kartu
+        // hilang. Pakai durasi terakhir selama lagu baru belum melaporkannya.
+        long dur = durMs > 0 ? durMs : durTerakhir;
+        perbaruiMetadata(dur);
 
         int st;
         if (main) {
             st = PlaybackState.STATE_PLAYING;
-        } else if (durMs > 0) {
+        } else if (dur > 0) {
             st = PlaybackState.STATE_PAUSED;
         } else {
             st = PlaybackState.STATE_NONE;
@@ -228,7 +236,7 @@ public class Pemutar {
     /** Tombol suka di kartu pemutar; ikonnya ikut keadaan sekarang. */
     private static PlaybackState.CustomAction aksiSuka(Context c) {
         try {
-            String nama = sukaSekarang ? "ic_suka_isi" : "ic_suka";
+            String nama = sukaSekarang ? "ic_jempol_isi" : "ic_jempol";
             int id = c.getResources().getIdentifier(nama, "drawable", c.getPackageName());
             if (id == 0) {
                 return null;

@@ -42,6 +42,10 @@ static COND_STATE: OnceLock<Mutex<std::sync::Arc<std::sync::Mutex<crate::conduct
 /// Judul/artis/sampul terakhir yang dikirim ke kartu sistem; dipakai untuk
 /// menyegarkan kartu setelah tombol di sana ditekan saat jendela diam.
 static LAST_MAIN: AtomicBool = AtomicBool::new(false);
+/// Kanal kerja UI + keadaan suka bersama, dipakai tombol suka di kartu sistem
+/// saat jendela tidak menggambar.
+static PINTU: OnceLock<crate::worker::Pintu> = OnceLock::new();
+static SUKA: OnceLock<Arc<Mutex<crate::ctl::Keadaan>>> = OnceLock::new();
 static INFO: Mutex<(String, String, String, bool)> =
     Mutex::new((String::new(), String::new(), String::new(), false));
 
@@ -63,11 +67,15 @@ pub fn pasang_kendali(
     snap: Arc<Mutex<Progress>>,
     cond: crate::conductor::Ctl,
     cond_state: Arc<Mutex<crate::conductor::Cond>>,
+    pintu: crate::worker::Pintu,
+    suka: Arc<Mutex<crate::ctl::Keadaan>>,
 ) {
     let _ = REMOTE.set(remote);
     let _ = SNAP.set(snap);
     let _ = COND.set(cond);
     let _ = COND_STATE.set(Mutex::new(cond_state));
+    let _ = PINTU.set(pintu);
+    let _ = SUKA.set(suka);
     // Kartu sistem ikut berganti saat konduktor memutar lagu berikutnya
     // sendiri (lagu habis di latar). Tanpa ini notifikasi tetap menunjuk lagu
     // lama dan tidak ada tombol yang bisa dipakai melanjutkan.
@@ -133,8 +141,33 @@ fn jalankan_langsung(aksi: i32) -> bool {
                         break;
                     }
                 }
+                // Kartu baru harus membawa durasi; tanpa itu Android menggambar
+                // state NONE dan bilah durasi di notifikasi hilang.
+                for _ in 0..40 {
+                    if durasi_siap() {
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(250));
+                }
                 segarkan_kartu(None);
             });
+        }
+        AKSI_SUKA => {
+            let Some(t) = lagu_sekarang() else { return false };
+            let baru = !suka_sekarang();
+            if let (Some(p), Some(sk)) = (PINTU.get(), SUKA.get()) {
+                {
+                    let Ok(mut g) = sk.lock() else { return false };
+                    g.id = t.id.clone();
+                    g.suka = baru;
+                    crate::ctl::tulis(sk);
+                }
+                p.send(crate::worker::Job::Rate(t.id.clone(), baru));
+            }
+            if let Ok(mut i) = INFO.lock() {
+                i.3 = baru;
+            }
+            segarkan_kartu(Some(true));
         }
         AKSI_PAUSE => {
             r.pause();
@@ -152,6 +185,18 @@ fn jalankan_langsung(aksi: i32) -> bool {
         _ => return false,
     }
     true
+}
+
+/// Durasi lagu aktif sudah diketahui (dipakai untuk bilah durasi kartu).
+fn durasi_siap() -> bool {
+    SNAP.get()
+        .and_then(|s| s.lock().ok().map(|g| g.dur > 1.0))
+        .unwrap_or(false)
+}
+
+/// Keadaan suka terakhir yang dikirim ke kartu.
+fn suka_sekarang() -> bool {
+    INFO.lock().map(|i| i.3).unwrap_or(false)
 }
 
 /// Lagu yang sedang dipegang konduktor, kalau ada.
