@@ -2915,16 +2915,15 @@ impl App {
     /// titik 4 px di bawah label.
     fn mobile_nav(&mut self, ui: &mut Ui) {
         let s = self.scheme;
-        let w = ui.available_width() / 4.0;
+        // Tiga tab: Beranda, Telusuri, Koleksi. "Sampel" dibuang atas permintaan
+        // hanzu — isinya belum pernah ada.
+        let w = ui.available_width() / 3.0;
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
             let aktif = s.on_surface;
             let redup = s.on_surface_variant;
             if nav_item(ui, Icon::Home, "Beranda", self.tab == Tab::Home, aktif, redup, w) {
                 self.goto(Tab::Home);
-            }
-            if nav_item(ui, Icon::Sample, "Sampel", false, aktif, redup, w) {
-                self.toast("Sampel belum ada isinya");
             }
             if nav_item(ui, Icon::Search, "Telusuri", self.tab == Tab::Cari, aktif, redup, w) {
                 self.goto(Tab::Cari);
