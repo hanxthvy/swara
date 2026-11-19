@@ -1131,6 +1131,7 @@ impl App {
         }
     }
 
+
     fn track_row(&mut self, ui: &mut Ui, t: &Track, idx: usize, dense: bool) -> bool {
         let s = self.scheme;
         let _ = idx;
@@ -1138,11 +1139,17 @@ impl App {
         let ctx = ui.ctx().clone();
         self.ensure_thumb(&ctx, &t.thumb);
         let h = if dense { 50.0 } else { 56.0 };
-        let side = if dense { 36.0 } else { 40.0 };
+        let side = if dense { 38.0 } else { 40.0 };
         let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::click());
-        if resp.hovered() {
+        if playing_this {
             ui.painter()
-                .rect_filled(rect, Rounding::same(8.0), s.on_surface.gamma_multiply(0.06));
+                .rect_filled(rect, Rounding::same(shape::ROW), s.surface_high);
+        } else if resp.hovered() {
+            ui.painter().rect_filled(
+                rect,
+                Rounding::same(shape::ROW),
+                s.on_surface.gamma_multiply(0.06),
+            );
         }
         let mid = rect.center().y;
         let img = Rect::from_min_size(pos2(rect.left() + 4.0, mid - side / 2.0), vec2(side, side));
@@ -1169,28 +1176,27 @@ impl App {
         }
 
         let x = img.right() + 12.0;
-        let dur_w = 44.0;
-        let text_w = (rect.right() - x - dur_w - 8.0).max(60.0);
-        let chars = (text_w / 7.2).max(8.0) as usize;
+        let dur_w = 46.0;
+        let text_w = (rect.right() - x - dur_w - 12.0).max(60.0);
         ui.painter().text(
             pos2(x, mid - 8.0),
             Align2::LEFT_CENTER,
-            short(&t.title, chars),
-            FontId::proportional(13.5),
-            if playing_this { s.primary } else { s.on_surface },
+            pas(ui.ctx(), &t.title, text_w, 14.0),
+            FontId::proportional(14.0),
+            s.on_surface,
         );
         ui.painter().text(
-            pos2(x, mid + 9.0),
+            pos2(x, mid + 10.0),
             Align2::LEFT_CENTER,
-            short(&t.artist, (chars as f32 * 0.9) as usize),
-            FontId::proportional(11.5),
+            pas(ui.ctx(), &t.artist, text_w, 12.0),
+            FontId::proportional(12.0),
             s.on_surface_variant,
         );
         ui.painter().text(
-            pos2(rect.right() - 8.0, mid),
+            pos2(rect.right() - 10.0, mid),
             Align2::RIGHT_CENTER,
             &t.dur,
-            FontId::proportional(11.5),
+            FontId::proportional(11.0),
             s.on_surface_variant,
         );
         if resp.hovered() {
@@ -1199,54 +1205,80 @@ impl App {
         resp.clicked()
     }
 
+
+    /// Kartu album: wadah `#181818` radius 8 dengan padding 8, sampul radius 6,
+    /// judul 14 tebal + sub 12 redup.
     fn card(&mut self, ui: &mut Ui, card: &Card, w: f32) {
         let s = self.scheme;
         let ctx = ui.ctx().clone();
         self.ensure_thumb(&ctx, &card.thumb);
         let tex = self.thumb_of(&card.thumb);
-        ui.allocate_ui_with_layout(vec2(w, w + 46.0), Layout::top_down(Align::Min), |ui| {
+        let tinggi = w + 76.0;
+        ui.allocate_ui_with_layout(vec2(w, tinggi), Layout::top_down(Align::Min), |ui| {
             ui.set_width(w);
-            let (rect, resp) = ui.allocate_exact_size(vec2(w, w), Sense::click());
+            let (wadah, resp) = ui.allocate_exact_size(vec2(w, tinggi), Sense::click());
+            ui.painter()
+                .rect_filled(wadah, Rounding::same(shape::CARD), s.surface_low);
+            if resp.hovered() {
+                ui.painter().rect_filled(
+                    wadah,
+                    Rounding::same(shape::CARD),
+                    s.surface_highest,
+                );
+            }
+            let pad = 8.0;
+            let rect = Rect::from_min_size(
+                pos2(wadah.left() + pad, wadah.top() + pad),
+                vec2(w - pad * 2.0, w - pad * 2.0),
+            );
             ui.painter()
                 .rect_filled(rect, Rounding::same(shape::RAD_CARD), s.surface_high);
             if let Some(t) = tex {
                 egui::Image::new((t.id(), t.size_vec2()))
-                    .fit_to_exact_size(vec2(w, w))
+                    .fit_to_exact_size(rect.size())
                     .rounding(Rounding::same(shape::RAD_CARD))
                     .paint_at(ui, rect);
             } else if !card.thumb.is_empty() {
                 let tt = ui.input(|i| i.time) as f32;
                 let a = 0.16 + 0.16 * (tt * 1.7).sin().abs();
-                ui.painter()
-                    .circle_filled(rect.center(), w * 0.045, s.on_surface.gamma_multiply(a));
+                ui.painter().circle_filled(
+                    rect.center(),
+                    rect.width() * 0.045,
+                    s.on_surface.gamma_multiply(a),
+                );
             }
             if resp.hovered() {
-                let c = pos2(rect.right() - 26.0, rect.bottom() - 26.0);
-                ui.painter().circle_filled(c, 18.0, s.on_surface);
+                let c = pos2(rect.right() - 24.0, rect.bottom() - 24.0);
+                ui.painter().circle_filled(c, 20.0, Color32::WHITE);
                 draw_icon(
                     ui.painter(),
                     Icon::Play,
                     Rect::from_center_size(c, vec2(16.0, 16.0)),
-                    s.surface,
+                    s.on_primary,
                 );
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             }
             if resp.clicked() {
                 self.open_card(card);
             }
-            ui.add_space(7.0);
-            let chars = (w / 6.6).max(8.0) as usize;
-            ui.label(
-                RichText::new(short(&card.title, chars))
-                    .size(14.0)
-                    .color(s.on_surface),
+            // Teks di dalam padding, tidak menembus tepi wadah.
+            let lebar_teks = (w - pad * 2.0).max(40.0);
+            ui.painter().text(
+                pos2(wadah.left() + pad + 2.0, rect.bottom() + 18.0),
+                Align2::LEFT_CENTER,
+                pas(ui.ctx(), &card.title, lebar_teks, 14.0),
+                FontId::proportional(14.0),
+                s.on_surface,
             );
-            ui.add_space(1.0);
-            ui.label(
-                RichText::new(short(&card.sub, chars))
-                    .size(12.0)
-                    .color(s.on_surface_variant),
+            ui.painter().text(
+                pos2(wadah.left() + pad + 2.0, rect.bottom() + 38.0),
+                Align2::LEFT_CENTER,
+                pas(ui.ctx(), &card.sub, lebar_teks, 12.0),
+                FontId::proportional(12.0),
+                s.on_surface_variant,
             );
+            // ruang kosong tetap dialokasikan supaya tinggi kartu seragam
+            ui.add_space(tinggi - pad - rect.height());
         });
     }
 
@@ -1306,127 +1338,70 @@ impl App {
 // ------------------------------------------------------------------ tata letak
 
 impl App {
+
     fn ui(&mut self, ctx: &egui::Context) {
         let s = self.scheme;
         let w = ctx.screen_rect().width();
-        // Breakpoint mengikuti YouTube Music: rail lebar >=1312, rail ikon di
-        // 800..1312, dan bilah tab di bawah untuk jendela sempit.
-        let mobile = w < 800.0;
-        let narrow = mobile || w < 1312.0;
-        let side_w = if mobile { 0.0 } else if w >= 1312.0 { 240.0 } else { 72.0 };
+        // Breakpoint tetap seperti sebelumnya; yang berubah hanya geometri.
+        let narrow = w < 1312.0;
+        let side_w = if narrow { 88.0 } else { 240.0 };
 
-        // ---- pemutar bawah, selebar jendela seperti YouTube Music
+        // Bilah pemutar menempel di dasar: 90 px, garis 1 px di tepi atas.
         if self.current.is_some() {
             egui::TopBottomPanel::bottom("bar")
                 .resizable(false)
-                .exact_height(76.0)
+                .exact_height(90.0)
                 .frame(
                     egui::Frame::none()
                         .fill(s.surface_low)
-                        .inner_margin(egui::Margin::symmetric(18.0, 10.0)),
+                        .stroke(egui::Stroke::new(1.0, s.outline_variant))
+                        .inner_margin(egui::Margin::symmetric(16.0, 0.0)),
                 )
                 .show(ctx, |ui| self.play_bar(ui, w));
         }
 
-        // ---- bilah tab bawah (jendela sempit)
-        // ---- bilah tab bawah (mode sempit, seperti aplikasi YT Music)
-        if mobile {
-            egui::TopBottomPanel::bottom("tabbar")
-                .resizable(false)
-                .exact_height(54.0)
-                .frame(
-                    egui::Frame::none()
-                        .fill(s.surface_low)
-                        .inner_margin(egui::Margin::symmetric(4.0, 4.0)),
-                )
-                .show(ctx, |ui| {
-                    ui.horizontal(|ui| {
-                        let cw = ui.available_width() / 3.0;
-                        for t in [Tab::Home, Tab::Cari, Tab::Koleksi] {
-                            let active = self.tab == t;
-                            let (rect, resp) = ui.allocate_exact_size(
-                                vec2(cw - 4.0, 44.0),
-                                Sense::click(),
-                            );
-                            let fg = if active { s.on_surface } else { s.on_surface_variant };
-                            draw_icon(
-                                ui.painter(),
-                                t.icon(),
-                                Rect::from_center_size(
-                                    pos2(rect.center().x, rect.center().y - 7.0),
-                                    vec2(20.0, 20.0),
-                                ),
-                                fg,
-                            );
-                            ui.painter().text(
-                                pos2(rect.center().x, rect.bottom() - 4.0),
-                                Align2::CENTER_BOTTOM,
-                                t.label(),
-                                FontId::proportional(10.0),
-                                fg,
-                            );
-                            if resp.clicked() {
-                                self.goto(t);
-                            }
-                        }
-                    });
-                });
-        }
+        egui::SidePanel::left("nav")
+            .resizable(false)
+            .exact_width(side_w)
+            .frame(
+                egui::Frame::none()
+                    .fill(s.surface_low)
+                    .inner_margin(egui::Margin::symmetric(12.0, 8.0)),
+            )
+            .show(ctx, |ui| self.side_nav(ui, narrow));
 
-        // ---- sidebar kiri
-        if !mobile {
-            egui::SidePanel::left("nav")
-                .resizable(false)
-                .exact_width(side_w)
-                .frame(
-                    egui::Frame::none()
-                        .fill(s.surface)
-                        .inner_margin(egui::Margin::symmetric(
-                            if w >= 1312.0 { 12.0 } else { 6.0 },
-                            10.0,
-                        )),
-                )
-                .show(ctx, |ui| self.side_nav(ui, w < 1312.0));
-
-        // ---- bilah atas: kolom cari + akun
         egui::TopBottomPanel::top("top")
             .resizable(false)
-            .exact_height(if mobile { 56.0 } else { 64.0 })
+            .exact_height(64.0)
             .frame(
-                egui::Frame::none().fill(s.surface).inner_margin(egui::Margin::symmetric(
-                    if mobile { 12.0 } else { 20.0 },
-                    12.0,
-                )),
+                egui::Frame::none()
+                    .fill(s.surface)
+                    .inner_margin(egui::Margin::symmetric(24.0, 10.0)),
             )
             .show(ctx, |ui| self.top_bar(ui));
-        }
 
-        // ---- panel antrean / lirik
+        // Panel kanan 384 px, berhenti di atas bilah pemutar.
         if self.show_queue {
-            let qw = if w >= 1320.0 {
-                384.0
-            } else if w >= 900.0 {
-                320.0
-            } else {
-                (w - 44.0).max(220.0)
-            };
+            let qw = if narrow { (w * 0.42).clamp(300.0, 384.0) } else { 384.0 };
             egui::SidePanel::right("queue")
                 .resizable(false)
                 .exact_width(qw)
                 .frame(
                     egui::Frame::none()
                         .fill(s.surface_low)
-                        .inner_margin(egui::Margin::symmetric(16.0, 12.0)),
+                        .inner_margin(egui::Margin::symmetric(20.0, 16.0)),
                 )
                 .show(ctx, |ui| self.queue_panel(ui));
         }
 
         egui::CentralPanel::default()
             .frame(
-                egui::Frame::none().fill(s.surface).inner_margin(egui::Margin::symmetric(
-                    if narrow { 14.0 } else { 24.0 },
-                    0.0,
-                )),
+                egui::Frame::none().fill(s.surface).inner_margin(egui::Margin {
+                    left: 24.0,
+                    right: 24.0,
+                    top: 8.0,
+                    bottom: 8.0,
+                }),
             )
             .show(ctx, |ui| match self.tab {
                 Tab::Home => self.tab_home(ui, narrow),
@@ -1434,7 +1409,7 @@ impl App {
                 Tab::Koleksi => self.tab_koleksi(ui),
             });
 
-        // ---- lembar pemutar penuh, naik dari bawah seperti YT Music
+        // ---- lembar pemutar penuh, naik dari bawah
         let anim = ctx.animate_bool_with_time(egui::Id::new("np-expand"), self.expanded, 0.26);
         if anim > 0.001 {
             self.expanded_sheet(ctx, anim);
@@ -1447,7 +1422,7 @@ impl App {
                     .show(ctx, |ui| {
                         egui::Frame::none()
                             .fill(self.scheme.surface_highest)
-                            .rounding(Rounding::same(20.0))
+                            .rounding(Rounding::same(shape::ROW))
                             .inner_margin(egui::Margin::symmetric(16.0, 10.0))
                             .show(ui, |ui| {
                                 ui.label(ts::body(&msg, self.scheme.on_surface));
@@ -1478,39 +1453,46 @@ impl App {
     }
 
     /// Satu baris navigasi: ikon 20 px, label 14 px, pil radius 10 px saat aktif.
+
     fn side_item(&mut self, ui: &mut Ui, t: Tab, active: bool, narrow: bool) -> Response {
         let s = self.scheme;
         let w = ui.available_width();
-        let (rect, resp) = ui.allocate_exact_size(vec2(w, if narrow { 54.0 } else { 44.0 }), Sense::click());
-        let ind = if narrow {
-            Rect::from_center_size(rect.center(), vec2(52.0, 46.0))
+        let (rect, resp) = ui.allocate_exact_size(vec2(w, 40.0), Sense::click());
+        let pill = if narrow {
+            Rect::from_center_size(rect.center(), vec2(w.min(56.0), 40.0))
         } else {
-            rect
+            Rect::from_center_size(rect.center(), vec2(w, 40.0))
         };
         if active {
             ui.painter()
-                .rect_filled(ind, Rounding::same(10.0), s.surface_high);
+                .rect_filled(pill, Rounding::same(shape::ROW), s.surface_highest);
         } else if resp.hovered() {
-            ui.painter()
-                .rect_filled(ind, Rounding::same(10.0), s.on_surface.gamma_multiply(0.07));
+            ui.painter().rect_filled(
+                pill,
+                Rounding::same(shape::ROW),
+                s.on_surface.gamma_multiply(0.06),
+            );
         }
         let fg = if active { s.on_surface } else { s.on_surface_variant };
         if narrow {
             draw_icon(
                 ui.painter(),
                 t.icon(),
-                Rect::from_center_size(ind.center(), vec2(21.0, 21.0)),
+                Rect::from_center_size(pill.center(), vec2(22.0, 22.0)),
                 fg,
             );
         } else {
             draw_icon(
                 ui.painter(),
                 t.icon(),
-                Rect::from_center_size(pos2(ind.left() + 16.0, ind.center().y), vec2(20.0, 20.0)),
+                Rect::from_min_size(
+                    pos2(pill.left() + 22.0, pill.center().y - 11.0),
+                    vec2(22.0, 22.0),
+                ),
                 fg,
             );
             ui.painter().text(
-                pos2(ind.left() + 44.0, ind.center().y),
+                pos2(pill.left() + 46.0, pill.center().y),
                 Align2::LEFT_CENTER,
                 t.label(),
                 FontId::proportional(14.0),
@@ -1523,33 +1505,35 @@ impl App {
         resp
     }
 
+
     fn side_nav(&mut self, ui: &mut Ui, narrow: bool) {
         let s = self.scheme;
 
-        // logo: tombol putar merah + wordmark
-        let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::hover());
-        let cy = r.center().y;
-        ui.painter().circle_filled(
-            pos2(r.left() + 14.0, cy),
-            11.0,
-            Color32::from_rgb(238, 0, 51),
-        );
+        // Logo lingkaran putih 32 px + wordmark, blok 76 px sampai baris nav.
+        let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 60.0), Sense::hover());
+        let cx = if narrow { r.center().x } else { r.left() + 16.0 };
+        ui.painter().circle_filled(pos2(cx, r.center().y), 16.0, Color32::WHITE);
         draw_icon(
             ui.painter(),
-            Icon::Play,
-            Rect::from_center_size(pos2(r.left() + 14.0, cy), vec2(10.0, 10.0)),
-            Color32::WHITE,
+            Icon::Logo,
+            Rect::from_center_size(pos2(cx, r.center().y), vec2(18.0, 18.0)),
+            s.on_primary,
         );
         if !narrow {
+            // Nama aplikasi di samping logo: tanpa ini sidebar terasa kosong.
+            let mut teks = "swara".to_string();
+            if let Some(c) = teks.get_mut(0..1) {
+                let _ = c;
+            }
             ui.painter().text(
-                pos2(r.left() + 33.0, cy),
+                pos2(r.left() + 44.0, r.center().y),
                 Align2::LEFT_CENTER,
-                "swara",
-                FontId::proportional(19.0),
+                teks,
+                FontId::proportional(18.0),
                 s.on_surface,
             );
         }
-        ui.add_space(4.0);
+        ui.add_space(8.0);
 
         for t in [Tab::Home, Tab::Cari, Tab::Koleksi] {
             let active = self.tab == t;
@@ -1560,13 +1544,9 @@ impl App {
         }
 
         if !narrow {
-            ui.add_space(10.0);
-            let (line, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
-            ui.painter()
-                .rect_filled(line, Rounding::same(0.5), s.outline_variant);
-            ui.add_space(12.0);
-            ui.label(ts::label("PUSTAKA", s.on_surface_variant).size(10.5));
-            ui.add_space(4.0);
+            ui.add_space(24.0);
+            ui.label(ts::label("Pustaka", s.on_surface_variant));
+            ui.add_space(6.0);
             if self.lib_item(ui, "Lagu disukai").clicked() {
                 self.koleksi = None;
                 self.view = View::Collection;
@@ -1584,99 +1564,98 @@ impl App {
             }
         }
 
-        // kaki sidebar: akun + tema
+        // kaki sidebar: tema + akun
         ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
+            let mut keluar = false;
+            let mut masuk = false;
+            if !narrow {
+                let (rect, resp) =
+                    ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::click());
+                let ind = Rect::from_center_size(rect.center(), vec2(rect.width(), 36.0));
+                if resp.hovered() {
+                    ui.painter().rect_filled(
+                        ind,
+                        Rounding::same(shape::ROW),
+                        s.on_surface.gamma_multiply(0.06),
+                    );
+                }
+                let nama = self.logged.clone();
+                let awal = nama
+                    .as_ref()
+                    .map(|n| n.chars().next().unwrap_or('?').to_uppercase().to_string())
+                    .unwrap_or_else(|| "?".into());
+                ui.painter().circle_filled(
+                    pos2(ind.left() + 16.0, ind.center().y),
+                    15.0,
+                    if nama.is_some() {
+                        s.surface_highest
+                    } else {
+                        s.surface_high
+                    },
+                );
+                ui.painter().text(
+                    pos2(ind.left() + 16.0, ind.center().y),
+                    Align2::CENTER_CENTER,
+                    awal,
+                    FontId::proportional(12.5),
+                    s.on_surface,
+                );
+                ui.painter().text(
+                    pos2(ind.left() + 40.0, ind.center().y),
+                    Align2::LEFT_CENTER,
+                    match &nama {
+                        Some(n) => pas(ui.ctx(), n, ind.width() - 56.0, 13.0),
+                        None => "Masuk".to_string(),
+                    },
+                    FontId::proportional(13.0),
+                    s.on_surface,
+                );
+                if resp.clicked() {
+                    if nama.is_some() {
+                        keluar = true;
+                    } else {
+                        masuk = true;
+                    }
+                }
+                ui.add_space(4.0);
+            }
             if self.icon_button(ui, Icon::Theme, 34.0, Btn::Ghost).clicked() {
                 self.scheme = theme::scheme(!s.dark, self.seed);
             }
-            if !narrow {
-                ui.add_space(6.0);
-                let (rect, resp) =
-                    ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::click());
-                let ind = Rect::from_center_size(rect.center(), vec2(rect.width(), 36.0));
-                if resp.hovered() {
-                    ui.painter()
-                        .rect_filled(ind, Rounding::same(10.0), s.on_surface.gamma_multiply(0.07));
-                }
-                match self.logged.clone() {
-                    Some(name) => {
-                        ui.painter().circle_filled(
-                            pos2(ind.left() + 16.0, ind.center().y),
-                            13.0,
-                            s.primary_container,
-                        );
-                        let initial = name
-                            .chars()
-                            .next()
-                            .unwrap_or('?')
-                            .to_uppercase()
-                            .to_string();
-                        ui.painter().text(
-                            pos2(ind.left() + 16.0, ind.center().y),
-                            Align2::CENTER_CENTER,
-                            initial,
-                            FontId::proportional(12.5),
-                            s.on_primary_container,
-                        );
-                        ui.painter().text(
-                            pos2(ind.left() + 36.0, ind.center().y),
-                            Align2::LEFT_CENTER,
-                            short(&name, 18),
-                            FontId::proportional(13.0),
-                            s.on_surface,
-                        );
-                        if resp.clicked() {
-                            self.worker.send(Job::Logout);
-                            self.logged = None;
-                            self.toast("keluar dari akun");
-                        }
-                    }
-                    None => {
-                        ui.painter().circle_filled(
-                            pos2(ind.left() + 16.0, ind.center().y),
-                            13.0,
-                            s.surface_highest,
-                        );
-                        ui.painter().text(
-                            pos2(ind.left() + 16.0, ind.center().y),
-                            Align2::CENTER_CENTER,
-                            "?",
-                            FontId::proportional(12.5),
-                            s.on_surface_variant,
-                        );
-                        ui.painter().text(
-                            pos2(ind.left() + 36.0, ind.center().y),
-                            Align2::LEFT_CENTER,
-                            "Masuk lewat Chromium",
-                            FontId::proportional(13.0),
-                            s.on_surface,
-                        );
-                        if resp.clicked() {
-                            self.toast("membaca sesi YouTube dari Chromium, tanpa kata sandi");
-                            self.worker.send(Job::Login);
-                        }
-                    }
-                }
+            if keluar {
+                self.worker.send(Job::Logout);
+                self.logged = None;
+                self.toast("keluar dari akun");
+            }
+            if masuk {
+                self.toast("membaca sesi YouTube dari Chromium, tanpa kata sandi");
+                self.worker.send(Job::Login);
             }
         });
     }
 
+
     fn lib_item(&mut self, ui: &mut Ui, label: &str) -> Response {
         let s = self.scheme;
-        let (rect, resp) =
-            ui.allocate_exact_size(vec2(ui.available_width(), 38.0), Sense::click());
+        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 36.0), Sense::click());
         if resp.hovered() {
-            ui.painter()
-                .rect_filled(rect, Rounding::same(10.0), s.on_surface.gamma_multiply(0.06));
+            ui.painter().rect_filled(
+                rect,
+                Rounding::same(shape::ROW),
+                s.on_surface.gamma_multiply(0.06),
+            );
         }
         draw_icon(
             ui.painter(),
             Icon::Library,
-            Rect::from_center_size(pos2(rect.left() + 16.0, rect.center().y), vec2(17.0, 17.0)),
+            Rect::from_min_size(
+                pos2(rect.left() + 22.0, rect.center().y - 8.5),
+                vec2(17.0, 17.0),
+            ),
             s.on_surface_variant,
         );
         ui.painter().text(
-            pos2(rect.left() + 36.0, rect.center().y),
+            pos2(rect.left() + 46.0, rect.center().y),
             Align2::LEFT_CENTER,
             label,
             FontId::proportional(13.0),
@@ -1686,104 +1665,134 @@ impl App {
     }
 
     /// Bilah atas: kolom cari membulat penuh di kiri, ikon di kanan.
+
+    /// Bilah atas 64 px: kolom cari pil 44 px, tiga ikon, lalu avatar 34 px.
     fn top_bar(&mut self, ui: &mut Ui) {
         let s = self.scheme;
-        let compact = ui.available_width() < 700.0;
+        let full = ui.max_rect();
         let mut submit = false;
-        ui.horizontal(|ui| {
-            let field_w = (ui.available_width() - if compact { 110.0 } else { 210.0 })
-                .clamp(150.0, 480.0);
-            let (rect, _) = ui.allocate_exact_size(vec2(field_w, 40.0), Sense::hover());
+
+        let sisa = (full.width() - 210.0).max(160.0);
+        let field_w = 420.0_f32.min(sisa);
+        let pill = Rect::from_min_size(
+            pos2(full.left(), full.center().y - 22.0),
+            vec2(field_w, 44.0),
+        );
+        let garis = if self.search_focus {
+            s.outline
+        } else {
+            s.surface_high
+        };
+        ui.painter()
+            .rect_filled(pill, Rounding::same(22.0), s.surface_high);
+        if self.search_focus {
             ui.painter()
-                .rect_filled(rect, Rounding::same(20.0), s.surface_high);
-            draw_icon(
-                ui.painter(),
-                Icon::Search,
-                Rect::from_center_size(pos2(rect.left() + 22.0, rect.center().y), vec2(18.0, 18.0)),
+                .rect_stroke(pill, Rounding::same(22.0), egui::Stroke::new(1.0, garis));
+        }
+        draw_icon(
+            ui.painter(),
+            Icon::Search,
+            Rect::from_min_size(
+                pos2(pill.left() + 18.0, pill.center().y - 8.5),
+                vec2(17.0, 17.0),
+            ),
+            s.on_surface_variant,
+        );
+        let te_rect = Rect::from_min_max(
+            pos2(pill.left() + 50.0, pill.top() + 12.0),
+            pos2(pill.right() - 14.0, pill.bottom() - 12.0),
+        );
+        let te = egui::TextEdit::singleline(&mut self.query)
+            .frame(false)
+            .margin(vec2(0.0, 0.0));
+        let resp = ui.put(te_rect, te);
+        self.search_focus = resp.has_focus();
+        if self.query.is_empty() && !resp.has_focus() {
+            ui.painter().text(
+                pos2(te_rect.left(), te_rect.center().y),
+                Align2::LEFT_CENTER,
+                "Cari lagu, album, artis",
+                FontId::proportional(13.0),
                 s.on_surface_variant,
             );
-            let te_rect = Rect::from_min_max(
-                pos2(rect.left() + 38.0, rect.top() + 10.0),
-                pos2(rect.right() - 14.0, rect.bottom() - 10.0),
+        }
+        if self.focus_cari {
+            resp.request_focus();
+            self.focus_cari = false;
+        }
+        if resp.changed() {
+            self.suggest_at = Some(Instant::now());
+            self.show_suggest = true;
+        }
+        let tekan_enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
+        if tekan_enter && (resp.has_focus() || resp.lost_focus()) {
+            submit = true;
+        }
+
+        // ---- kanan: avatar 34 di ujung, ikon 18 berjarak 46 px
+        let cy = full.center().y;
+        let avatar = Rect::from_center_size(pos2(full.right() - 17.0, cy), vec2(34.0, 34.0));
+        let logged = self.logged.clone();
+        let mut keluar = false;
+        let mut masuk = false;
+        let (av) = ui.interact(avatar, egui::Id::new("tb-avatar"), Sense::click());
+        ui.painter()
+            .circle_filled(avatar.center(), 17.0, s.surface_highest);
+        ui.painter().text(
+            avatar.center(),
+            Align2::CENTER_CENTER,
+            logged
+                .as_ref()
+                .map(|n| n.chars().next().unwrap_or('?').to_uppercase().to_string())
+                .unwrap_or_else(|| "?".into()),
+            FontId::proportional(13.0),
+            if logged.is_some() {
+                s.on_surface
+            } else {
+                s.on_surface_variant
+            },
+        );
+        if av.clicked() {
+            if logged.is_some() {
+                keluar = true;
+            } else {
+                masuk = true;
+            }
+        }
+
+        let mut ikon = |id: &str, offset: f32, icon: Icon, aktif: bool| -> bool {
+            let r = Rect::from_center_size(pos2(full.right() - offset, cy), vec2(19.0, 19.0));
+            let hit = ui.interact(r.expand(10.0), egui::Id::new(id), Sense::click());
+            if hit.hovered() {
+                ui.painter()
+                    .circle_filled(r.center(), 17.0, s.on_surface.gamma_multiply(0.08));
+            }
+            draw_ikon(
+                ui.painter(),
+                icon,
+                r,
+                if aktif { s.on_surface } else { s.on_surface_variant },
+                aktif,
             );
-            let te = egui::TextEdit::singleline(&mut self.query)
-                .frame(false)
-                .margin(vec2(0.0, 0.0));
-            let resp = ui.put(te_rect, te);
-            self.search_focus = resp.has_focus();
-            // placeholder digambar sendiri: hint bawaan TextEdit bisa terpotong
-            // di kiri saat kolomnya sempit.
-            if self.query.is_empty() && !resp.has_focus() {
-                ui.painter().text(
-                    pos2(te_rect.left(), te_rect.center().y),
-                    Align2::LEFT_CENTER,
-                    "Cari lagu, album, artis",
-                    FontId::proportional(13.0),
-                    s.on_surface_variant,
-                );
+            if hit.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             }
-            if self.focus_cari {
-                resp.request_focus();
-                self.focus_cari = false;
-            }
-            if resp.changed() {
-                self.suggest_at = Some(Instant::now());
-                self.show_suggest = true;
-            }
-            // Enter pada kolom satu baris menyerahkan fokus lebih dulu, jadi
-            // has_focus() sudah false saat baris ini jalan. lost_focus() ikut
-            // dihitung supaya Enter tetap menjalankan pencarian.
-            let tekan_enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
-            if tekan_enter && (resp.has_focus() || resp.lost_focus()) {
-                submit = true;
-            }
-
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                let logged = self.logged.clone();
-                let (av, avr) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
-                ui.painter().circle_filled(av.center(), 15.0, s.surface_highest);
-                let initial = logged
-                    .as_ref()
-                    .map(|n| n.chars().next().unwrap_or('?').to_uppercase().to_string())
-                    .unwrap_or_else(|| "?".into());
-                ui.painter().text(
-                    av.center(),
-                    Align2::CENTER_CENTER,
-                    initial,
-                    FontId::proportional(13.0),
-                    if logged.is_some() {
-                        s.on_surface
-                    } else {
-                        s.on_surface_variant
-                    },
-                );
-                if avr.clicked() {
-                    match logged {
-                        Some(_) => {
-                            self.worker.send(Job::Logout);
-                            self.logged = None;
-                            self.toast("keluar dari akun");
-                        }
-                        None => {
-                            self.toast("membaca sesi YouTube dari Chromium, tanpa kata sandi");
-                            self.worker.send(Job::Login);
-                        }
-                    }
-                }
-                ui.add_space(4.0);
-                if self.icon_button(ui, Icon::Theme, 34.0, Btn::Ghost).clicked() {
-                    self.scheme = theme::scheme(!s.dark, self.seed);
-                }
-                // Panel antrean yang sedang terbuka ikut terlihat dari
-                // tombolnya, bukan cuma dari isi layar.
-                let gaya = if self.show_queue { Btn::Tonal } else { Btn::Ghost };
-                let qbtn = self.icon_button(ui, Icon::Queue, 34.0, gaya);
-                if qbtn.clicked() {
-                    self.show_queue = !self.show_queue;
-                }
-            });
-        });
-
+            hit.clicked()
+        };
+        let tema = ikon("tb-tema", 168.0, Icon::Theme, false);
+        let antrean = ikon("tb-queue", 122.0, Icon::Queue, self.show_queue && !self.show_lyrics);
+        let lirik = ikon("tb-lyrics", 76.0, Icon::Lyrics, self.show_queue && self.show_lyrics);
+        if tema {
+            self.scheme = theme::scheme(!s.dark, self.seed);
+        }
+        if antrean {
+            self.show_queue = true;
+            self.show_lyrics = false;
+        }
+        if lirik {
+            self.show_queue = true;
+            self.show_lyrics = true;
+        }
         if let Some(at) = self.suggest_at {
             if at.elapsed() > Duration::from_millis(240) && !self.query.is_empty() {
                 self.worker.send(Job::Suggest(self.query.clone()));
@@ -1797,6 +1806,15 @@ impl App {
             self.last_error = None;
             self.tab = Tab::Cari;
             self.worker.send(Job::Search(self.query.clone()));
+        }
+        if keluar {
+            self.worker.send(Job::Logout);
+            self.logged = None;
+            self.toast("keluar dari akun");
+        }
+        if masuk {
+            self.toast("membaca sesi YouTube dari Chromium, tanpa kata sandi");
+            self.worker.send(Job::Login);
         }
     }
 
@@ -1816,6 +1834,9 @@ impl App {
 
     /// Pemutar bawah: kontrol rapat di kiri, info lagu tepat di tengah,
     /// ikon sekunder berderet dari kanan — susunan yang sama dengan YT Music.
+
+    /// Bilah pemutar 90 px: info lagu di kiri, transport + durasi di tengah,
+    /// ikon sekunder di kanan (kanvas `swara-ui`).
     fn play_bar(&mut self, ui: &mut Ui, win_w: f32) {
         let s = self.scheme;
         let track = self.current.clone();
@@ -1827,118 +1848,23 @@ impl App {
             .or_else(|| track.as_ref().map(|t| t.secs))
             .unwrap_or(0.0);
         let cover = self.cover_of();
-        let w = ui.available_width();
-        let (rect, _) = ui.allocate_exact_size(vec2(w, 56.0), Sense::hover());
-        let mid = rect.center().y;
-        let left = rect.left();
-
-        // garis durasi tipis di tepi atas bar
-        let tr = Rect::from_min_max(
-            pos2(left, rect.top() - 9.0),
-            pos2(rect.right(), rect.top() - 6.0),
-        );
-        ui.painter()
-            .rect_filled(tr, Rounding::same(1.5), s.outline_variant);
+        let full = ui.max_rect();
+        let mid = full.center().y;
         let pos_now = self.drag_pos.unwrap_or(self.progress.pos);
-        if dur > 0.0 {
-            let f = (pos_now / dur).clamp(0.0, 1.0) as f32;
-            ui.painter().rect_filled(
-                Rect::from_min_max(tr.min, pos2(tr.left() + tr.width() * f, tr.max.y)),
-                Rounding::same(1.5),
-                s.on_surface,
-            );
-        }
-        let hit = ui.interact(
-            tr.expand2(vec2(0.0, 7.0)),
-            egui::Id::new("bar-seek"),
-            Sense::click(),
-        );
-        if hit.clicked() && dur > 0.0 {
-            if let Some(p) = hit.interact_pointer_pos() {
-                let f = ((p.x - tr.left()) / tr.width().max(1.0)).clamp(0.0, 1.0);
-                self.player.seek(f as f64 * dur);
-            }
-        }
 
-        // ---- kiri: prev / putar / next / waktu, jarak tetap 16 px
-        let cx = left + 20.0;
-        let prev = Rect::from_center_size(pos2(cx, mid), vec2(26.0, 26.0));
-        let play = Rect::from_center_size(pos2(cx + 52.0, mid), vec2(34.0, 34.0));
-        let nxt = Rect::from_center_size(pos2(cx + 104.0, mid), vec2(26.0, 26.0));
-
-        let prev_hit = ui.interact(prev.expand(6.0), egui::Id::new("pb-prev"), Sense::click());
-        if prev_hit.hovered() {
-            ui.painter()
-                .circle_filled(prev.center(), 20.0, s.on_surface.gamma_multiply(0.08));
-        }
-        if win_w >= 520.0 {
-            draw_icon(ui.painter(), Icon::Prev, prev, s.on_surface);
-        }
-        if prev_hit.clicked() {
-            self.next_track(-1);
-        }
-
-        let play_hit = ui.interact(play.expand(6.0), egui::Id::new("pb-play"), Sense::click());
-        if play_hit.hovered() {
-            ui.painter()
-                .circle_filled(play.center(), 22.0, s.on_surface.gamma_multiply(0.08));
-        }
-        draw_icon(
-            ui.painter(),
-            if self.progress.playing {
-                Icon::Pause
-            } else {
-                Icon::Play
-            },
-            play.shrink(3.0),
-            s.on_surface,
-        );
-        if play_hit.clicked() {
-            self.toggle_play();
-        }
-
-        let next_hit = ui.interact(nxt.expand(6.0), egui::Id::new("pb-next"), Sense::click());
-        if next_hit.hovered() {
-            ui.painter()
-                .circle_filled(nxt.center(), 20.0, s.on_surface.gamma_multiply(0.08));
-        }
-        if win_w >= 520.0 {
-            draw_icon(ui.painter(), Icon::Next, nxt, s.on_surface);
-        }
-        if next_hit.clicked() {
-            self.next_track(1);
-        }
-
-        if win_w >= 720.0 {
-            ui.painter().text(
-                pos2(nxt.right() + 20.0, mid),
-                Align2::LEFT_CENTER,
-                format!("{} / {}", fmt_time(pos_now), fmt_time(dur)),
-                FontId::proportional(11.5),
-                s.on_surface_variant,
-            );
-        }
-
-        // ---- tengah: sampul + judul + artis, rapat di kanan jam.
-        // Sengaja TIDAK dipusatkan ke tengah jendela: di layar lebar itu
-        // meninggalkan celah ratusan piksel antara jam dan sampul, dan itu
-        // yang berulang kali dikeluhkan. Jangkar selalu di kanan jam.
-        let roomy = win_w >= 980.0;
-        let text_w: f32 = if roomy { 190.0 } else { 130.0 };
-        let group_w = 40.0 + 12.0 + text_w;
-        let time_x = nxt.right() + 20.0;
-        let time_w = if win_w >= 720.0 { 66.0 } else { 0.0 };
-        let art_left: f32 = (time_x + time_w + 30.0).max(rect.left() + 8.0);
-        let art = Rect::from_center_size(pos2(art_left, mid), vec2(40.0, 40.0));
-        ui.painter().rect_filled(art, Rounding::same(4.0), s.surface_high);
+        // ---- kiri: sampul 56, judul 14, artis 11.5
+        let art = Rect::from_min_size(pos2(full.left() + 16.0, mid - 28.0), vec2(56.0, 56.0));
+        ui.painter()
+            .rect_filled(art, Rounding::same(shape::RAD_THUMB), s.surface_high);
         if let Some(t) = cover {
             egui::Image::new((t.id(), t.size_vec2()))
-                .fit_to_exact_size(vec2(40.0, 40.0))
-                .rounding(Rounding::same(4.0))
+                .fit_to_exact_size(vec2(56.0, 56.0))
+                .rounding(Rounding::same(shape::RAD_THUMB))
                 .paint_at(ui, art);
         }
         let tx = art.right() + 12.0;
-        let chars = (text_w / 7.0).max(8.0) as usize;
+        // Ruang teks dibatasi supaya judul tidak pernah menembus transport.
+        let ruang = (full.width() * 0.26).clamp(110.0, 240.0);
         let (title, artist) = match &track {
             Some(t) => (t.title.clone(), t.artist.clone()),
             None => ("Belum ada lagu".into(), String::new()),
@@ -1946,131 +1872,164 @@ impl App {
         ui.painter().text(
             pos2(tx, mid - 9.0),
             Align2::LEFT_CENTER,
-            short(&title, chars),
-            FontId::proportional(13.0),
+            pas(ui.ctx(), &title, ruang, 14.0),
+            FontId::proportional(14.0),
             s.on_surface,
         );
         ui.painter().text(
-            pos2(tx, mid + 9.0),
+            pos2(tx, mid + 10.0),
             Align2::LEFT_CENTER,
-            short(&artist, chars),
+            pas(ui.ctx(), &artist, ruang, 11.5),
             FontId::proportional(11.5),
             s.on_surface_variant,
         );
 
-        if roomy {
-            // trio ini ikut grup info, bukan ke tengah jendela
-            let gx = art.left() + group_w + 20.0;
-            let menu = Rect::from_center_size(pos2(gx + 62.0, mid), vec2(24.0, 24.0));
-            let mh = ui.interact(menu.expand(6.0), egui::Id::new("pb-more"), Sense::click());
-            if mh.hovered() {
+        // ---- tengah: shuffle, prev, putar 44, next, repeat
+        let cx = full.center().x;
+        let y_atas = full.top() + 30.0;
+        let shuffle = Rect::from_center_size(pos2(cx - 116.0, y_atas), vec2(18.0, 18.0));
+        let prev = Rect::from_center_size(pos2(cx - 70.0, y_atas), vec2(22.0, 22.0));
+        let play = Rect::from_center_size(pos2(cx, y_atas), vec2(44.0, 44.0));
+        let nxt = Rect::from_center_size(pos2(cx + 70.0, y_atas), vec2(22.0, 22.0));
+        let repeat = Rect::from_center_size(pos2(cx + 116.0, y_atas), vec2(18.0, 18.0));
+
+        let mut tombol = |r: Rect, id: &str, icon: Icon, ukuran: f32, aktif: bool| -> bool {
+            let hit = ui.interact(r.expand(8.0), egui::Id::new(id), Sense::click());
+            if hit.hovered() {
                 ui.painter()
-                    .circle_filled(menu.center(), 18.0, s.on_surface.gamma_multiply(0.08));
-            }
-            draw_icon(ui.painter(), Icon::More, menu, s.on_surface_variant);
-            if mh.clicked() {
-                self.show_queue = !self.show_queue;
-            }
-            let dislike = Rect::from_center_size(pos2(gx + 28.0, mid), vec2(24.0, 24.0));
-            let dh = ui.interact(dislike.expand(6.0), egui::Id::new("pb-dislike"), Sense::click());
-            if dh.hovered() {
-                ui.painter()
-                    .circle_filled(dislike.center(), 18.0, s.on_surface.gamma_multiply(0.08));
-            }
-            let nilai = self
-                .current
-                .as_ref()
-                .and_then(|t| self.rating.get(&t.id).copied())
-                .unwrap_or(0);
-            draw_ikon(
-                ui.painter(),
-                Icon::Dislike,
-                dislike,
-                if nilai == -1 { s.primary } else { s.on_surface_variant },
-                nilai == -1,
-            );
-            let like = Rect::from_center_size(pos2(gx, mid), vec2(24.0, 24.0));
-            let lh = ui.interact(like.expand(6.0), egui::Id::new("pb-like"), Sense::click());
-            if lh.hovered() {
-                ui.painter()
-                    .circle_filled(like.center(), 18.0, s.on_surface.gamma_multiply(0.08));
+                    .circle_filled(r.center(), r.width() * 0.85, s.on_surface.gamma_multiply(0.08));
             }
             draw_ikon(
                 ui.painter(),
-                Icon::Like,
-                like,
-                if nilai == 1 { s.primary } else { s.on_surface_variant },
-                nilai == 1,
+                icon,
+                Rect::from_center_size(r.center(), vec2(ukuran, ukuran)),
+                if aktif { s.on_surface } else { s.on_surface_variant },
+                aktif,
             );
-            if lh.clicked() {
-                self.nilai_lagu(1);
+            if hit.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             }
-            if dh.clicked() {
-                self.nilai_lagu(-1);
-            }
-        }
-
-        // ---- kanan: satu deret, jarak 16 px, margin 20 px
-        let mut rx = rect.right() - 20.0;
-        let mut slot = |name: &str| -> Rect {
-            let r = Rect::from_center_size(pos2(rx - 12.0, mid), vec2(24.0, 24.0));
-            rx -= 40.0;
-            let _ = name;
-            r
-        };
-        let up = slot("up");
-        let shuf = slot("shuf");
-        let rep = slot("rep");
-        let que = slot("que");
-        let lyr = slot("lyr");
-        let vol = slot("vol");
-
-        let mut bar_btn = |ui: &mut Ui, icon: Icon, r: Rect, id: &str, on: bool, me: &mut App| -> bool {
-            let resp = ui.interact(r.expand(8.0), egui::Id::new(id), Sense::click());
-            if resp.hovered() {
-                ui.painter()
-                    .circle_filled(r.center(), 18.0, me.scheme.on_surface.gamma_multiply(0.08));
-            }
-            let warna = if on {
-                me.scheme.primary
-            } else {
-                me.scheme.on_surface_variant
-            };
-            draw_ikon(ui.painter(), icon, r, warna, on);
-            if icon == Icon::Volume && on {
-                // Bisu ditandai garis miring, bukan cuma warna: warna saja
-                // tidak cukup jelas untuk keadaan yang mematikan suara.
-                let d = r.width() * 0.32;
-                ui.painter().line_segment(
-                    [
-                        pos2(r.center().x - d, r.center().y + d),
-                        pos2(r.center().x + d, r.center().y - d),
-                    ],
-                    egui::Stroke::new(r.width() * 0.10, warna),
-                );
-            }
-            resp.clicked()
+            hit.clicked()
         };
 
-        if bar_btn(ui, Icon::ChevronUp, up, "pb-up", false, self) {
-            self.expanded = true;
-        }
-        if win_w >= 860.0 && bar_btn(ui, Icon::Shuffle, shuf, "pb-shuf", self.shuffle_on, self) {
+        let luas = win_w >= 900.0;
+        if luas && tombol(shuffle, "pb-shuf", Icon::Shuffle, 18.0, self.shuffle_on) {
             self.shuffle_queue();
         }
-        if win_w >= 860.0 && bar_btn(ui, Icon::Repeat, rep, "pb-rep", self.ulangi > 0, self) {
+        if tombol(prev, "pb-prev", Icon::Prev, 22.0, false) {
+            self.next_track(-1);
+        }
+        // Tombol putar: lingkaran putih penuh, glyph hitam.
+        let ph = ui.interact(play.expand(4.0), egui::Id::new("pb-play"), Sense::click());
+        ui.painter().circle_filled(
+            play.center(),
+            22.0,
+            if ph.hovered() { Color32::from_gray(235) } else { Color32::WHITE },
+        );
+        draw_icon(
+            ui.painter(),
+            if self.progress.playing {
+                Icon::Pause
+            } else {
+                Icon::Play
+            },
+            play.shrink(12.0),
+            s.on_primary,
+        );
+        if ph.clicked() {
+            self.toggle_play();
+        }
+        if tombol(nxt, "pb-next", Icon::Next, 22.0, false) {
+            self.next_track(1);
+        }
+        if luas && tombol(repeat, "pb-rep", Icon::Repeat, 18.0, self.ulangi > 0) {
             self.putar_ulang();
         }
-        if bar_btn(ui, Icon::Queue, que, "pb-queue", self.show_queue && !self.show_lyrics, self) {
-            self.show_queue = !self.show_queue;
+
+        // ---- durasi: track 440 px di tengah bawah, waktu di kedua ujung
+        let lebar_track = 440.0_f32.min(full.width() * 0.42);
+        let ty = full.top() + 66.0;
+        let track_rect = Rect::from_center_size(pos2(cx, ty), vec2(lebar_track, 3.0));
+        ui.painter()
+            .rect_filled(track_rect, Rounding::same(1.5), s.outline);
+        if dur > 0.0 {
+            let f = (pos_now / dur).clamp(0.0, 1.0) as f32;
+            ui.painter().rect_filled(
+                Rect::from_min_max(
+                    track_rect.min,
+                    pos2(track_rect.left() + track_rect.width() * f, track_rect.bottom()),
+                ),
+                Rounding::same(1.5),
+                Color32::WHITE,
+            );
+        }
+        let hit = ui.interact(
+            track_rect.expand2(vec2(0.0, 9.0)),
+            egui::Id::new("bar-seek"),
+            Sense::click(),
+        );
+        if hit.clicked() && dur > 0.0 {
+            if let Some(p) = hit.interact_pointer_pos() {
+                let f = ((p.x - track_rect.left()) / track_rect.width().max(1.0)).clamp(0.0, 1.0);
+                self.player.seek(f as f64 * dur);
+            }
+        }
+        ui.painter().text(
+            pos2(track_rect.left() - 10.0, ty),
+            Align2::RIGHT_CENTER,
+            fmt_time(pos_now),
+            FontId::proportional(10.5),
+            s.on_surface_variant,
+        );
+        ui.painter().text(
+            pos2(track_rect.right() + 10.0, ty),
+            Align2::LEFT_CENTER,
+            fmt_time(dur),
+            FontId::proportional(10.5),
+            s.on_surface_variant,
+        );
+
+        // ---- kanan: ikon 18 berjarak 46 px dari tepi
+        let ry = full.top() + 30.0;
+        let mut kanan = |id: &str, offset: f32, icon: Icon, aktif: bool, ukuran: f32| -> bool {
+            let r = Rect::from_center_size(
+                pos2(full.right() - offset, ry),
+                vec2(ukuran, ukuran),
+            );
+            let hit = ui.interact(r.expand(9.0), egui::Id::new(id), Sense::click());
+            if hit.hovered() {
+                ui.painter()
+                    .circle_filled(r.center(), 17.0, s.on_surface.gamma_multiply(0.08));
+            }
+            draw_ikon(
+                ui.painter(),
+                icon,
+                r,
+                if aktif { s.on_surface } else { s.on_surface_variant },
+                aktif,
+            );
+            if hit.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            hit.clicked()
+        };
+        let nilai = self
+            .current
+            .as_ref()
+            .and_then(|t| self.rating.get(&t.id).copied())
+            .unwrap_or(0);
+        if win_w >= 760.0 && kanan("pb-up", 164.0, Icon::ChevronUp, false, 18.0) {
+            self.expanded = true;
+        }
+        if kanan("pb-like", 120.0, Icon::Like, nilai == 1, 18.0) {
+            self.nilai_lagu(1);
+        }
+        if kanan("pb-queue", 76.0, Icon::Queue, self.show_queue && !self.show_lyrics, 18.0) {
+            self.show_queue = true;
             self.show_lyrics = false;
         }
-        if bar_btn(ui, Icon::Lyrics, lyr, "pb-lyr", self.show_queue && self.show_lyrics, self) {
-            self.show_queue = true;
-            self.show_lyrics = true;
-        }
         let bisu = self.progress.volume <= 0.01;
-        if win_w >= 860.0 && bar_btn(ui, Icon::Volume, vol, "pb-vol", bisu, self) {
+        if kanan("pb-vol", 32.0, Icon::Volume, bisu, 18.0) {
             let v = self.progress.volume;
             self.player.set_volume(if v > 0.01 { 0.0 } else { 0.8 });
         }
@@ -2657,7 +2616,7 @@ impl App {
                         ui.painter().text(
                             pos2(r.left() + 42.0, r.center().y),
                             Align2::LEFT_CENTER,
-                            &sug,
+                            pas(ui.ctx(), &sug, r.width() - 56.0, 13.5),
                             FontId::proportional(13.5),
                             s.on_surface,
                         );
@@ -2871,59 +2830,52 @@ impl App {
     // ---- tata letak ponsel (mengikuti aplikasi YouTube Music)
 
     /// Header: logo Music di kiri, lonceng dan avatar di kanan.
+
     fn mobile_header(&mut self, ui: &mut Ui) {
         let s = self.scheme;
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
             let (r, _) = ui.allocate_exact_size(vec2(26.0, 26.0), Sense::hover());
-            draw_icon(ui.painter(), Icon::Logo, r, Color32::WHITE);
-            ui.label(
-                RichText::new("Music")
-                    .size(19.0)
-                    .strong()
-                    .color(s.on_surface),
+            ui.painter()
+                .circle_filled(r.center(), 13.0, Color32::WHITE);
+            draw_icon(
+                ui.painter(),
+                Icon::Logo,
+                Rect::from_center_size(r.center(), vec2(15.0, 15.0)),
+                s.on_primary,
             );
+            ui.add_space(6.0);
+            ui.label(RichText::new("swara").size(17.0).strong().color(s.on_surface));
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 let logged = self.logged.clone();
                 let (av, avr) = ui.allocate_exact_size(vec2(30.0, 30.0), Sense::click());
                 ui.painter()
-                    .circle_filled(av.center(), 14.0, s.surface_highest);
-                let initial = logged
-                    .as_ref()
-                    .map(|n| n.chars().next().unwrap_or('?').to_uppercase().to_string())
-                    .unwrap_or_else(|| "H".into());
+                    .circle_filled(av.center(), 15.0, s.surface_highest);
                 ui.painter().text(
                     av.center(),
                     Align2::CENTER_CENTER,
-                    initial,
+                    logged
+                        .as_ref()
+                        .map(|n| n.chars().next().unwrap_or('?').to_uppercase().to_string())
+                        .unwrap_or_else(|| "?".into()),
                     FontId::proportional(12.5),
                     s.on_surface,
                 );
                 if avr.clicked() {
-                    match logged {
-                        Some(_) => {
-                            self.worker.send(Job::Logout);
-                            self.logged = None;
-                            self.toast("keluar dari akun");
-                        }
-                        None => {
-                            self.worker.send(Job::Login);
-                        }
+                    if logged.is_some() {
+                        self.worker.send(Job::Logout);
+                        self.logged = None;
+                        self.toast("keluar dari akun");
+                    } else {
+                        self.worker.send(Job::Login);
                     }
                 }
                 ui.add_space(10.0);
                 let (b, br) = ui.allocate_exact_size(vec2(30.0, 30.0), Sense::click());
-                draw_icon(ui.painter(), Icon::Bell, b, s.on_surface);
+                draw_icon(ui.painter(), Icon::Bell, b.shrink(4.0), s.on_surface);
                 ui.painter().circle_filled(
-                    pos2(b.right() - 2.0, b.top() + 5.0),
-                    6.0,
-                    Color32::from_rgb(198, 44, 44),
-                );
-                ui.painter().text(
-                    pos2(b.right() - 2.0, b.top() + 5.0),
-                    Align2::CENTER_CENTER,
-                    "1",
-                    FontId::proportional(8.0),
+                    pos2(b.right() - 4.0, b.top() + 7.0),
+                    5.0,
                     Color32::WHITE,
                 );
                 if br.clicked() {
@@ -2935,65 +2887,86 @@ impl App {
 
     /// Bilah tab bawah: Beranda, Sampel, Telusuri, Koleksi. Tab "Upgrade" milik
     /// YouTube Music sengaja tidak dipakai -- Swara gratis, tidak ada langganan.
+
+    /// Tiga tab: Beranda, Telusuri, Koleksi. Tab aktif putih penuh dengan
+    /// titik 4 px di bawah label.
     fn mobile_nav(&mut self, ui: &mut Ui) {
         let s = self.scheme;
-        let w = ui.available_width() / 4.0;
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 0.0;
-            let aktif = s.on_surface;
-            let redup = s.on_surface_variant;
-            if nav_item(ui, Icon::Home, "Beranda", self.tab == Tab::Home, aktif, redup, w) {
-                self.goto(Tab::Home);
+        let full = ui.max_rect();
+        let w = full.width();
+        let tab: [(Tab, Icon, &str); 3] = [
+            (Tab::Home, Icon::Home, "Beranda"),
+            (Tab::Cari, Icon::Search, "Telusuri"),
+            (Tab::Koleksi, Icon::Library, "Koleksi"),
+        ];
+        for (i, (t, ikon, label)) in tab.into_iter().enumerate() {
+            let cx = full.left() + w * (0.5 + i as f32) / 3.0;
+            let akt = self.tab == t;
+            let fg = if akt { s.on_surface } else { s.on_surface_variant };
+            let r = Rect::from_min_size(pos2(cx - 22.0, full.top() + 8.0), vec2(44.0, 44.0));
+            draw_icon(
+                ui.painter(),
+                ikon,
+                Rect::from_center_size(pos2(cx, full.top() + 24.0), vec2(22.0, 22.0)),
+                fg,
+            );
+            ui.painter().text(
+                pos2(cx, full.top() + 46.0),
+                Align2::CENTER_CENTER,
+                label,
+                FontId::proportional(10.0),
+                fg,
+            );
+            if akt {
+                ui.painter().circle_filled(
+                    pos2(cx, full.top() + 60.0),
+                    2.0,
+                    Color32::WHITE,
+                );
             }
-            if nav_item(ui, Icon::Sample, "Sampel", false, aktif, redup, w) {
-                self.toast("Sampel belum ada isinya");
+            let hit = ui.interact(r, egui::Id::new(("mtab", i)), Sense::click());
+            if hit.clicked() {
+                self.goto(t);
             }
-            if nav_item(ui, Icon::Search, "Telusuri", self.tab == Tab::Cari, aktif, redup, w) {
-                self.goto(Tab::Cari);
-            }
-            if nav_item(ui, Icon::Library, "Koleksi", self.tab == Tab::Koleksi, aktif, redup, w) {
-                self.goto(Tab::Koleksi);
-            }
-        });
+        }
     }
 
     /// Mini player di atas bilah tab: sampul, judul, cast, putar/jeda.
+
+    /// Mini player 68 px: sampul 48, judul 13.5, artis 11.5, durasi 3 px di dasar.
     fn mobile_mini(&mut self, ui: &mut Ui) {
         let s = self.scheme;
         let ctx = ui.ctx().clone();
         let cur = self.current.clone();
         let Some(t) = cur else { return };
-        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 58.0), Sense::click());
+        let full = ui.max_rect();
+        let resp = ui.interact(full, egui::Id::new("mmini-hit"), Sense::click());
         self.ensure_thumb(&ctx, &t.thumb);
-        let img = Rect::from_center_size(
-            pos2(rect.left() + 31.0, rect.center().y - 3.0),
-            vec2(46.0, 46.0),
-        );
+        let img = Rect::from_min_size(pos2(full.left(), full.center().y - 26.0), vec2(48.0, 48.0));
         ui.painter()
-            .rect_filled(img, Rounding::same(6.0), s.surface_high);
+            .rect_filled(img, Rounding::same(shape::RAD_THUMB), s.surface_high);
         if let Some(tex) = self.thumb_of(&t.thumb) {
             egui::Image::new((tex.id(), tex.size_vec2()))
-                .fit_to_exact_size(vec2(46.0, 46.0))
-                .rounding(Rounding::same(6.0))
+                .fit_to_exact_size(vec2(48.0, 48.0))
+                .rounding(Rounding::same(shape::RAD_THUMB))
                 .paint_at(ui, img);
         }
+        // lebar teks dibatasi tombol putar di kanan, jadi judul tidak menembus
+        let pr = Rect::from_center_size(pos2(full.right() - 20.0, full.center().y - 4.0), vec2(22.0, 22.0));
+        let teks_w = (pr.left() - img.right() - 24.0).max(60.0);
         ui.painter().text(
-            pos2(img.right() + 12.0, rect.center().y - 11.0),
+            pos2(img.right() + 12.0, full.center().y - 11.0),
             Align2::LEFT_CENTER,
-            short(&t.title, 26),
-            FontId::proportional(14.0),
+            pas(ui.ctx(), &t.title, teks_w, 13.5),
+            FontId::proportional(13.5),
             s.on_surface,
         );
         ui.painter().text(
-            pos2(img.right() + 12.0, rect.center().y + 9.0),
+            pos2(img.right() + 12.0, full.center().y + 9.0),
             Align2::LEFT_CENTER,
-            short(&t.artist, 30),
-            FontId::proportional(12.0),
+            pas(ui.ctx(), &t.artist, teks_w, 11.5),
+            FontId::proportional(11.5),
             s.on_surface_variant,
-        );
-        let pr = Rect::from_center_size(
-            pos2(rect.right() - 26.0, rect.center().y - 3.0),
-            vec2(22.0, 22.0),
         );
         draw_icon(
             ui.painter(),
@@ -3005,12 +2978,6 @@ impl App {
             pr,
             s.on_surface,
         );
-        let cr = Rect::from_center_size(
-            pos2(rect.right() - 68.0, rect.center().y - 3.0),
-            vec2(20.0, 20.0),
-        );
-        draw_icon(ui.painter(), Icon::Cast, cr, s.on_surface_variant);
-        // garis durasi tipis di dasar bilah
         let dur = self.progress.dur;
         let frac = if dur > 0.0 {
             (self.progress.pos / dur).clamp(0.0, 1.0) as f32
@@ -3018,22 +2985,19 @@ impl App {
             0.0
         };
         let bar = Rect::from_min_max(
-            pos2(rect.left(), rect.bottom() - 2.0),
-            pos2(rect.right(), rect.bottom()),
+            pos2(full.left(), full.bottom() - 3.0),
+            pos2(full.right(), full.bottom()),
         );
-        ui.painter()
-            .rect_filled(bar, Rounding::ZERO, s.surface_highest);
+        ui.painter().rect_filled(bar, Rounding::ZERO, s.outline);
         ui.painter().rect_filled(
             Rect::from_min_max(bar.min, pos2(bar.left() + bar.width() * frac, bar.bottom())),
             Rounding::ZERO,
-            s.primary,
+            Color32::WHITE,
         );
         if resp.clicked() {
             if let Some(p) = resp.interact_pointer_pos() {
-                if (p.x - pr.center().x).abs() < 24.0 {
+                if (p.x - pr.center().x).abs() < 26.0 {
                     self.toggle_play();
-                } else if (p.x - cr.center().x).abs() < 22.0 {
-                    self.toast("cast belum didukung");
                 } else {
                     self.expanded = true;
                 }
@@ -3188,7 +3152,7 @@ impl App {
         ui.painter().text(
             pos2(x, rect.center().y - 10.0),
             Align2::LEFT_CENTER,
-            short(&c.title, 30),
+            pas(ui.ctx(), &c.title, ui.available_width() - 96.0, 18.0),
             FontId::proportional(14.5),
             if playing { s.primary } else { s.on_surface },
         );
@@ -3262,28 +3226,32 @@ impl App {
     }
 
     /// Kerangka layar ponsel: header, isi tab, mini player, bilah tab.
+
     fn mobile(&mut self, ctx: &egui::Context, _w: f32) {
         let s = self.scheme;
         let bawah = self.inset_bawah;
+        // Nav bawah 68 px: ikon 22, label 10, titik 4 px untuk tab aktif.
         egui::TopBottomPanel::bottom("mnav")
             .resizable(false)
-            .exact_height(56.0 + bawah)
+            .exact_height(68.0 + bawah)
             .frame(
                 egui::Frame::none()
                     .fill(s.surface_low)
+                    .stroke(egui::Stroke::new(1.0, s.outline_variant))
                     .inner_margin(egui::Margin {
                         left: 0.0,
                         right: 0.0,
-                        top: 2.0,
-                        bottom: 2.0 + bawah,
+                        top: 0.0,
+                        bottom: bawah,
                     }),
             )
             .show(ctx, |ui| self.mobile_nav(ui));
 
+        // Mini player menempel di atas nav, tinggi 68 px.
         if self.current.is_some() {
             egui::TopBottomPanel::bottom("mmini")
                 .resizable(false)
-                .exact_height(58.0)
+                .exact_height(68.0)
                 .frame(
                     egui::Frame::none()
                         .fill(s.surface_low)
@@ -3295,15 +3263,15 @@ impl App {
         let atas = self.inset_atas;
         egui::TopBottomPanel::top("mhead")
             .resizable(false)
-            .exact_height(54.0 + atas)
+            .exact_height(76.0 + atas)
             .frame(
                 egui::Frame::none()
                     .fill(s.surface)
                     .inner_margin(egui::Margin {
-                        left: 14.0,
-                        right: 14.0,
-                        top: 10.0 + atas,
-                        bottom: 10.0,
+                        left: 16.0,
+                        right: 16.0,
+                        top: 34.0 + atas,
+                        bottom: 0.0,
                     }),
             )
             .show(ctx, |ui| self.mobile_header(ui));
@@ -3312,7 +3280,7 @@ impl App {
             .frame(
                 egui::Frame::none()
                     .fill(s.surface)
-                    .inner_margin(egui::Margin::symmetric(14.0, 0.0)),
+                    .inner_margin(egui::Margin::symmetric(16.0, 0.0)),
             )
             .show(ctx, |ui| match self.tab {
                 Tab::Home => self.mobile_feed(ui),
@@ -3398,6 +3366,9 @@ impl App {
     }
 
     /// Pemutar penuh di ponsel: sampul besar, aksi, bilah durasi, kontrol.
+
+    /// Pemutar penuh ponsel: sampul selebar layar dengan gradasi pudar di tepi,
+    /// judul 24, chip kapital, durasi, lalu transport dengan tombol putar 60 px.
     fn mobile_player(&mut self, ctx: &egui::Context) {
         let s = self.scheme;
         let cur = self.current.clone();
@@ -3408,148 +3379,218 @@ impl App {
         let bawah = self.inset_bawah;
         egui::CentralPanel::default()
             .frame(
-                egui::Frame::none()
-                    .fill(s.surface)
-                    .inner_margin(egui::Margin {
-                        left: 18.0,
-                        right: 18.0,
-                        top: 12.0 + atas,
-                        bottom: 12.0 + bawah,
-                    }),
+                egui::Frame::none().fill(s.surface).inner_margin(egui::Margin {
+                    left: 0.0,
+                    right: 0.0,
+                    top: atas,
+                    bottom: bawah,
+                }),
             )
             .show(ctx, |ui| {
-                // ---- baris atas
-                ui.horizontal(|ui| {
-                    let (r, resp) = ui.allocate_exact_size(vec2(34.0, 34.0), Sense::click());
-                    draw_icon(ui.painter(), Icon::ChevronDown, r, s.on_surface);
-                    if resp.clicked() {
-                        tutup = true;
-                    }
-                });
-                ui.add_space(10.0);
+                let full = ui.max_rect();
+                let w = full.width();
 
-                // ---- sampul besar
-                // Saat panel lirik/antrean dibuka, sampul besar dilepas supaya
-                // ruangnya dipakai isi panel; di ponsel tidak ada panel samping.
-                let w = ui.available_width();
-                if !(self.show_lyrics || self.show_queue) {
-                    let img = Rect::from_center_size(
-                        pos2(ui.max_rect().center().x, ui.cursor().top() + w / 2.0),
-                        vec2(w, w),
-                    );
+                // ---- baris atas: panah tutup
+                let chev = Rect::from_min_size(pos2(full.left() + 16.0, full.top() + 10.0), vec2(32.0, 32.0));
+                draw_icon(ui.painter(), Icon::ChevronDown, chev.shrink(6.0), s.on_surface);
+                if ui
+                    .interact(chev, egui::Id::new("mp-tutup"), Sense::click())
+                    .clicked()
+                {
+                    tutup = true;
+                }
+
+                // ---- sampul + gradasi tepi (54 px), hanya saat panel tertutup
+                let panel = self.show_lyrics || self.show_queue;
+                let mut y = chev.bottom() + 6.0;
+                if !panel {
+                    let sisi = (w * 0.94).min((full.height() - 300.0).max(120.0));
+                    let img = Rect::from_center_size(pos2(full.center().x, y + sisi / 2.0), vec2(sisi, sisi));
                     ui.painter()
-                        .rect_filled(img, Rounding::same(10.0), s.surface_high);
+                        .rect_filled(img, Rounding::same(shape::CARD), s.surface_high);
                     if let Some(t) = &cur {
                         let ctx2 = ui.ctx().clone();
                         self.ensure_thumb(&ctx2, &t.thumb);
                         if let Some(tex) = self.thumb_of(&t.thumb) {
                             egui::Image::new((tex.id(), tex.size_vec2()))
-                                .fit_to_exact_size(vec2(w, w))
-                                .rounding(Rounding::same(10.0))
+                                .fit_to_exact_size(img.size())
+                                .rounding(Rounding::same(shape::CARD))
                                 .paint_at(ui, img);
                         }
                     }
-                    ui.advance_cursor_after_rect(img);
-                    ui.add_space(16.0);
+                    // gradasi: tumpukan baris warna latar dengan alfa menurun
+                    for i in 0..18 {
+                        let a = 0.08 + 0.05 * (18 - i) as f32 / 18.0;
+                        let yy = img.top() + i as f32 * 2.0;
+                        ui.painter().rect_filled(
+                            Rect::from_min_max(pos2(img.left(), yy), pos2(img.right(), yy + 2.0)),
+                            Rounding::ZERO,
+                            s.surface.gamma_multiply(a),
+                        );
+                    }
+                    y = img.bottom() + 18.0;
                 }
 
-                // ---- judul + artis
+                // ---- judul, artis
+                let pad = 20.0;
                 let judul = cur.as_ref().map(|t| t.title.clone()).unwrap_or_default();
                 let artis = cur.as_ref().map(|t| t.artist.clone()).unwrap_or_default();
-                ui.label(RichText::new(short(&judul, 30)).size(22.0).strong().color(s.on_surface));
-                ui.label(RichText::new(short(&artis, 36)).size(13.0).color(s.on_surface_variant));
-                ui.add_space(12.0);
+                let teks_w = w - pad * 2.0;
+                ui.painter().text(
+                    pos2(full.left() + pad, y + 8.0),
+                    Align2::LEFT_CENTER,
+                    pas(ui.ctx(), &judul, teks_w, 24.0),
+                    FontId::proportional(24.0),
+                    s.on_surface,
+                );
+                ui.painter().text(
+                    pos2(full.left() + pad, y + 34.0),
+                    Align2::LEFT_CENTER,
+                    pas(ui.ctx(), &artis, teks_w, 12.0),
+                    FontId::proportional(12.0),
+                    s.on_surface_variant,
+                );
+                y += 54.0;
 
-                // ---- pil aksi
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 8.0;
-                    let aksi: [(Icon, &str); 4] = [
-                        (Icon::Like, "Suka"),
-                        (Icon::Dislike, "Tidak"),
-                        (Icon::Lyrics, "Lirik"),
-                        (Icon::Queue, "Antrean"),
-                    ];
-                    let nilai = self
-                        .current
-                        .as_ref()
-                        .and_then(|t| self.rating.get(&t.id).copied())
-                        .unwrap_or(0);
-                    for (ikon, label) in aksi {
-                        let nyala = match label {
-                            "Suka" => nilai == 1,
-                            "Tidak" => nilai == -1,
-                            "Lirik" => self.show_lyrics && !self.show_queue,
-                            "Antrean" => self.show_queue && !self.show_lyrics,
-                            _ => false,
-                        };
-                        if self.chip_ikon(ui, ikon, label, nyala) {
-                            match label {
-                                "Suka" => self.nilai_lagu(1),
-                                "Tidak" => self.nilai_lagu(-1),
-                                "Lirik" => {
-                                    let buka = !(self.show_lyrics && !self.show_queue);
-                                    self.show_lyrics = buka;
-                                    self.show_queue = false;
-                                }
-                                "Antrean" => {
-                                    let buka = !(self.show_queue && !self.show_lyrics);
-                                    self.show_queue = buka;
-                                    self.show_lyrics = false;
-                                }
-                                _ => self.toast("belum didukung"),
+                // ---- chip aksi (kapital, pil 32 px)
+                let aksi: [(Icon, &str); 4] = [
+                    (Icon::Like, "Suka"),
+                    (Icon::Dislike, "Tidak"),
+                    (Icon::Lyrics, "Lirik"),
+                    (Icon::Queue, "Antrean"),
+                ];
+                let nilai = self
+                    .current
+                    .as_ref()
+                    .and_then(|t| self.rating.get(&t.id).copied())
+                    .unwrap_or(0);
+                let mut x = full.left() + pad;
+                for (ikon, label) in aksi {
+                    let nyala = match label {
+                        "Suka" => nilai == 1,
+                        "Tidak" => nilai == -1,
+                        "Lirik" => self.show_lyrics && !self.show_queue,
+                        "Antrean" => self.show_queue && !self.show_lyrics,
+                        _ => false,
+                    };
+                    let lebar = 34.0 + label.chars().count() as f32 * 7.0;
+                    if x + lebar > full.right() - pad {
+                        break;
+                    }
+                    let r = Rect::from_min_size(pos2(x, y), vec2(lebar, 32.0));
+                    let latar = if nyala { Color32::WHITE } else { s.surface_high };
+                    let fg = if nyala { s.on_primary } else { s.on_surface };
+                    ui.painter().rect_filled(r, Rounding::same(shape::CHIP), latar);
+                    draw_ikon(
+                        ui.painter(),
+                        ikon,
+                        Rect::from_center_size(pos2(r.left() + 17.0, r.center().y), vec2(15.0, 15.0)),
+                        fg,
+                        nyala,
+                    );
+                    ui.painter().text(
+                        pos2(r.left() + 29.0, r.center().y),
+                        Align2::LEFT_CENTER,
+                        label.to_uppercase(),
+                        FontId::proportional(10.5),
+                        fg,
+                    );
+                    let hit = ui.interact(r, egui::Id::new(("mp-chip", label)), Sense::click());
+                    if hit.clicked() {
+                        match label {
+                            "Suka" => self.nilai_lagu(1),
+                            "Tidak" => self.nilai_lagu(-1),
+                            "Lirik" => {
+                                let buka = !(self.show_lyrics && !self.show_queue);
+                                self.show_lyrics = buka;
+                                self.show_queue = false;
+                            }
+                            _ => {
+                                let buka = !(self.show_queue && !self.show_lyrics);
+                                self.show_queue = buka;
+                                self.show_lyrics = false;
                             }
                         }
                     }
-                });
-                ui.add_space(10.0);
+                    x += lebar + 8.0;
+                }
+                y += 44.0;
 
                 // ---- panel lirik / antrean
-                if self.show_lyrics || self.show_queue {
-                    let h = (ui.available_height() - 156.0).clamp(110.0, 420.0);
-                    self.side_panel_body(ui, h);
-                    ui.add_space(6.0);
-                }
-
-                ui.add_space(4.0);
-
-                // ---- bilah durasi
-                if let Some(v) = self.seek_bar(ui, dur, ui.available_width()) {
-                    seek_ke = Some(v);
-                }
-                ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new(fmt_time(self.progress.pos))
-                            .size(11.5)
-                            .color(s.on_surface_variant),
+                if panel {
+                    let h = (full.bottom() - y - 130.0).clamp(120.0, 520.0);
+                    ui.allocate_ui_with_layout(
+                        vec2(teks_w, h),
+                        Layout::top_down(Align::Min),
+                        |ui| {
+                            ui.set_width(teks_w);
+                            self.side_panel_body(ui, h);
+                        },
                     );
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.label(
-                            RichText::new(fmt_time(dur))
-                                .size(11.5)
-                                .color(s.on_surface_variant),
-                        );
-                    });
-                });
-                ui.add_space(8.0);
+                }
 
-                // ---- kontrol
-                let w = ui.available_width();
-                let (rect, _) = ui.allocate_exact_size(vec2(w, 66.0), Sense::hover());
-                let cy = rect.center().y;
+                // ---- durasi dan transport menempel di bawah
+                let bawah_y = full.bottom() - 10.0;
+                let lebar_track = (w - pad * 2.0).min(560.0);
+                let ty = bawah_y - 96.0;
+                let track_rect =
+                    Rect::from_center_size(pos2(full.center().x, ty), vec2(lebar_track, 3.0));
+                ui.painter()
+                    .rect_filled(track_rect, Rounding::same(1.5), s.outline);
+                let pos_now = self.drag_pos.unwrap_or(self.progress.pos);
+                if dur > 0.0 {
+                    let f = (pos_now / dur).clamp(0.0, 1.0) as f32;
+                    ui.painter().rect_filled(
+                        Rect::from_min_max(
+                            track_rect.min,
+                            pos2(track_rect.left() + track_rect.width() * f, track_rect.bottom()),
+                        ),
+                        Rounding::same(1.5),
+                        Color32::WHITE,
+                    );
+                }
+                let hit = ui.interact(
+                    track_rect.expand2(vec2(0.0, 14.0)),
+                    egui::Id::new("mp-seek"),
+                    Sense::click(),
+                );
+                if hit.clicked() && dur > 0.0 {
+                    if let Some(p) = hit.interact_pointer_pos() {
+                        let f = ((p.x - track_rect.left()) / track_rect.width().max(1.0))
+                            .clamp(0.0, 1.0);
+                        seek_ke = Some(f as f64 * dur);
+                    }
+                }
+                ui.painter().text(
+                    pos2(track_rect.left(), ty + 16.0),
+                    Align2::LEFT_CENTER,
+                    fmt_time(pos_now),
+                    FontId::proportional(10.5),
+                    s.on_surface_variant,
+                );
+                ui.painter().text(
+                    pos2(track_rect.right(), ty + 16.0),
+                    Align2::RIGHT_CENTER,
+                    fmt_time(dur),
+                    FontId::proportional(10.5),
+                    s.on_surface_variant,
+                );
+
+                let cy = bawah_y - 44.0;
                 let xs = [
-                    rect.left() + 24.0,
-                    rect.left() + w * 0.30,
-                    rect.center().x,
-                    rect.left() + w * 0.70,
-                    rect.right() - 24.0,
+                    full.left() + pad + 12.0,
+                    full.center().x - 64.0,
+                    full.center().x,
+                    full.center().x + 64.0,
+                    full.right() - pad - 12.0,
                 ];
                 for (i, ikon) in [Icon::Shuffle, Icon::Prev, Icon::Play, Icon::Next, Icon::Repeat]
                     .into_iter()
                     .enumerate()
                 {
                     if i == 2 {
-                        let besar = Rect::from_center_size(pos2(xs[2], cy), vec2(62.0, 62.0));
-                        ui.painter().circle_filled(besar.center(), 31.0, s.on_surface);
+                        let r = Rect::from_center_size(pos2(xs[2], cy), vec2(60.0, 60.0));
+                        ui.painter().circle_filled(r.center(), 30.0, Color32::WHITE);
                         draw_icon(
                             ui.painter(),
                             if self.progress.playing {
@@ -3557,57 +3598,33 @@ impl App {
                             } else {
                                 Icon::Play
                             },
-                            Rect::from_center_size(besar.center(), vec2(28.0, 28.0)),
-                            s.surface,
+                            Rect::from_center_size(r.center(), vec2(22.0, 22.0)),
+                            s.on_primary,
                         );
-                        let r = ui.interact(besar, egui::Id::new("mplay"), Sense::click());
-                        if r.clicked() {
+                        let hitr = ui.interact(r, egui::Id::new("mplay"), Sense::click());
+                        if hitr.clicked() {
                             self.toggle_play();
                         }
-                    } else {
-                        let r = ui.interact(
-                            Rect::from_center_size(pos2(xs[i], cy), vec2(40.0, 40.0)),
-                            egui::Id::new(("mctl", i)),
-                            Sense::click(),
-                        );
-                        let nyala = (i == 0 && self.shuffle_on) || (i == 4 && self.ulangi > 0);
-                        let warna = if nyala {
-                            s.primary
-                        } else if i == 0 || i == 4 {
-                            s.on_surface_variant
-                        } else {
-                            s.on_surface
-                        };
-                        draw_ikon(
-                            ui.painter(),
-                            ikon,
-                            Rect::from_center_size(pos2(xs[i], cy), vec2(22.0, 22.0)),
-                            warna,
-                            nyala,
-                        );
-                        if r.clicked() {
-                            match i {
-                                0 => self.shuffle_queue(),
-                                1 => self.next_track(-1),
-                                3 => self.next_track(1),
-                                _ => self.putar_ulang(),
-                            }
-                        }
+                        continue;
                     }
-                }
-                ui.add_space(10.0);
-
-                // ---- handle + Mix
-                let (h, _) = ui.allocate_exact_size(vec2(ui.available_width(), 12.0), Sense::hover());
-                ui.painter().rect_filled(
-                    Rect::from_center_size(h.center(), vec2(34.0, 3.0)),
-                    Rounding::same(2.0),
-                    s.on_surface_variant.gamma_multiply(0.5),
-                );
-                ui.add_space(6.0);
-                if self.chip(ui, &format!("Mix {}", short(&judul, 18)), false).clicked() {
-                    if let Some(t) = self.current.clone() {
-                        self.worker.send(Job::Radio(t.id));
+                    let r = Rect::from_center_size(pos2(xs[i], cy), vec2(40.0, 40.0));
+                    let nyala = (i == 0 && self.shuffle_on) || (i == 4 && self.ulangi > 0);
+                    let warna = if nyala { s.on_surface } else { s.on_surface_variant };
+                    draw_ikon(
+                        ui.painter(),
+                        ikon,
+                        Rect::from_center_size(r.center(), vec2(if i == 1 || i == 3 { 24.0 } else { 20.0 }, if i == 1 || i == 3 { 24.0 } else { 20.0 })),
+                        warna,
+                        nyala,
+                    );
+                    let hitr = ui.interact(r, egui::Id::new(("mctl", i)), Sense::click());
+                    if hitr.clicked() {
+                        match i {
+                            0 => self.shuffle_queue(),
+                            1 => self.next_track(-1),
+                            3 => self.next_track(1),
+                            _ => self.putar_ulang(),
+                        }
                     }
                 }
             });
@@ -3691,6 +3708,62 @@ fn berkas_baris(ui: &mut Ui, nama: &str, ukuran: f64, warna: Color32, teks: Colo
         teks.gamma_multiply(0.75),
     );
     resp.clicked()
+}
+
+/// Potong teks supaya benar-benar muat di `lebar` px pada ukuran font itu.
+/// Dipakai di semua tempat yang menggambar teks dengan `painter().text`,
+/// karena teks seperti itu tidak pernah dibungkus dan bisa menembus induknya.
+///
+/// Diukur dengan lebar font asli, bukan jumlah karakter: huruf lebar seperti
+/// "W" dan "M" membuat hitungan karakter meleset. Hasilnya di-cache karena
+/// teks yang sama digambar tiap frame.
+fn pas(ctx: &egui::Context, teks: &str, lebar: f32, size: f32) -> String {
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+    thread_local! {
+        static CACHE: RefCell<HashMap<(String, u32, u32), String>> = RefCell::new(HashMap::new());
+    }
+    if lebar <= 8.0 {
+        return String::new();
+    }
+    let kunci = (teks.to_owned(), lebar.round() as u32, (size * 10.0) as u32);
+    if let Some(hit) = CACHE.with(|c| c.borrow().get(&kunci).cloned()) {
+        return hit;
+    }
+    let font = FontId::proportional(size);
+    let ukur = |s: &str| -> f32 {
+        ctx.fonts(|f| {
+            f.layout_no_wrap(s.to_owned(), font.clone(), Color32::WHITE)
+                .size()
+                .x
+        })
+    };
+    let hasil = if ukur(teks) <= lebar {
+        teks.to_owned()
+    } else {
+        // Bagi dua jumlah karakter: beberapa pengukuran saja, bukan satu per huruf.
+        let huruf: Vec<char> = teks.chars().collect();
+        let (mut lo, mut hi) = (0usize, huruf.len());
+        while lo < hi {
+            let mid = (lo + hi + 1) / 2;
+            let coba: String = huruf[..mid].iter().collect::<String>() + "…";
+            if ukur(&coba) <= lebar {
+                lo = mid;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        let potong: String = huruf[..lo].iter().collect();
+        format!("{}…", potong.trim_end())
+    };
+    CACHE.with(|c| {
+        let mut m = c.borrow_mut();
+        if m.len() > 512 {
+            m.clear();
+        }
+        m.insert(kunci, hasil.clone());
+    });
+    hasil
 }
 
 fn short(s: &str, n: usize) -> String {

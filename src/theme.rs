@@ -1,9 +1,10 @@
-//! Token warna dan ukuran bergaya Material 3 Expressive.
+//! Token warna dan ukuran mengikuti kanvas `swara-ui.figcraft`.
 //!
-//! Skema dibangun dari satu warna benih (rata-rata sampul lagu): hue benih
-//! dipertahankan, lalu peran tonal diturunkan seperti `material-color-utilities`
-//! menyusun `SchemeExpressive` — primer terang di tema gelap, kontainer tonal
-//! untuk permukaan, dan outline tipis untuk pemisah.
+//! Bahasanya Spotify tanpa merek: permukaan hampir hitam, teks akromatik, dan
+//! **putih satu-satunya aksen fungsional** — tombol putar berupa lingkaran putih
+//! dengan glyph hitam. Warna lain hanya datang dari sampul album, jadi hue dari
+//! benih tetap disimpan pada permukaan (sangat tipis) supaya panel tidak terasa
+//! mati, sementara teks dan aksen tetap netral.
 
 use egui::Color32;
 
@@ -21,7 +22,7 @@ pub struct Scheme {
     /// Kartu dan panel isi.
     pub surface_low: Color32,
     pub surface_high: Color32,
-    /// Kolom pencarian, tombol tonal, state layer.
+    /// Kolom pencarian, tombol pil, baris aktif.
     pub surface_highest: Color32,
     pub on_surface: Color32,
     pub on_surface_variant: Color32,
@@ -77,25 +78,39 @@ pub fn hsl(h: f32, s: f32, l: f32) -> Color32 {
     Color32::from_rgb(to(r1), to(g1), to(b1))
 }
 
+/// Campur `a` ke `b` sebanyak `t` (0..1).
+fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
+    let t = t.clamp(0.0, 1.0);
+    let f = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
+    Color32::from_rgb(
+        f(a.r(), b.r()),
+        f(a.g(), b.g()),
+        f(a.b(), b.b()),
+    )
+}
+
 pub fn scheme(dark: bool, seed: Option<[u8; 3]>) -> Scheme {
     let (h, s) = seed_hs(seed);
     if dark {
+        // Netral dari kanvas, dengan sentuhan hue sampul 4% supaya sampul
+        // berwarna tidak terasa menempel di atas abu-abu mati.
+        let tint = |l: f32, sat: f32| hsl(h, s * sat, l);
         Scheme {
             dark,
-            primary: hsl(h, (s * 0.85).max(0.42), 0.78),
-            on_primary: hsl(h, (s * 0.75).max(0.40), 0.16),
-            primary_container: hsl(h, (s * 0.60).max(0.30), 0.34),
-            on_primary_container: hsl(h, (s * 0.65).max(0.32), 0.93),
-            secondary_container: hsl(h, s * 0.30, 0.26),
-            on_secondary_container: hsl(h, s * 0.30, 0.92),
-            surface: hsl(h, s * 0.08, 0.045),
-            surface_low: hsl(h, s * 0.07, 0.075),
-            surface_high: hsl(h, s * 0.07, 0.125),
-            surface_highest: hsl(h, s * 0.07, 0.172),
-            on_surface: hsl(h, 0.05, 0.95),
-            on_surface_variant: hsl(h, 0.06, 0.66),
-            outline: hsl(h, 0.07, 0.44),
-            outline_variant: hsl(h, 0.07, 0.24),
+            primary: Color32::WHITE,
+            on_primary: Color32::from_rgb(0x12, 0x12, 0x12),
+            primary_container: Color32::from_rgb(0x25, 0x25, 0x25),
+            on_primary_container: Color32::WHITE,
+            secondary_container: Color32::from_rgb(0x1f, 0x1f, 0x1f),
+            on_secondary_container: Color32::from_rgb(0xb3, 0xb3, 0xb3),
+            surface: mix(Color32::from_rgb(0x12, 0x12, 0x12), tint(0.07, 0.05), 0.35),
+            surface_low: mix(Color32::from_rgb(0x18, 0x18, 0x18), tint(0.09, 0.05), 0.35),
+            surface_high: mix(Color32::from_rgb(0x1f, 0x1f, 0x1f), tint(0.11, 0.05), 0.30),
+            surface_highest: mix(Color32::from_rgb(0x25, 0x25, 0x25), tint(0.14, 0.05), 0.30),
+            on_surface: Color32::WHITE,
+            on_surface_variant: Color32::from_rgb(0xb3, 0xb3, 0xb3),
+            outline: Color32::from_rgb(0x4d, 0x4d, 0x4d),
+            outline_variant: Color32::from_rgb(0x2a, 0x2a, 0x2a),
         }
     } else {
         Scheme {
@@ -106,10 +121,10 @@ pub fn scheme(dark: bool, seed: Option<[u8; 3]>) -> Scheme {
             on_primary_container: hsl(h, s * 0.55, 0.16),
             secondary_container: hsl(h, s * 0.30, 0.90),
             on_secondary_container: hsl(h, s * 0.40, 0.18),
-            surface: hsl(h, s * 0.16, 0.975),
-            surface_low: hsl(h, s * 0.14, 0.955),
-            surface_high: hsl(h, s * 0.18, 0.925),
-            surface_highest: hsl(h, s * 0.20, 0.885),
+            surface: hsl(h, s * 0.10, 0.975),
+            surface_low: hsl(h, s * 0.10, 0.955),
+            surface_high: hsl(h, s * 0.12, 0.925),
+            surface_highest: hsl(h, s * 0.14, 0.885),
             on_surface: hsl(h, 0.22, 0.13),
             on_surface_variant: hsl(h, 0.14, 0.38),
             outline: hsl(h, 0.10, 0.52),
@@ -118,22 +133,36 @@ pub fn scheme(dark: bool, seed: Option<[u8; 3]>) -> Scheme {
     }
 }
 
-/// Skala tipe: display, headline, title, body, label.
+/// Skala tipe kanvas: judul halaman 24, seksi 18, hero 40, lagu 14,
+/// isi 14, subteks 12–13.5, label kapital 10.5–11.5.
 pub mod type_scale {
     use egui::Color32;
     use egui::RichText;
 
+    /// Judul album besar di kepala koleksi.
+    pub fn hero(text: impl Into<String>, c: Color32) -> RichText {
+        RichText::new(text).size(40.0).color(c).strong()
+    }
+    /// Judul halaman.
+    pub fn page(text: impl Into<String>, c: Color32) -> RichText {
+        RichText::new(text).size(24.0).color(c).strong()
+    }
+    /// Judul seksi rak.
+    pub fn section(text: impl Into<String>, c: Color32) -> RichText {
+        RichText::new(text).size(18.0).color(c).strong()
+    }
     pub fn display(text: impl Into<String>, c: Color32) -> RichText {
-        RichText::new(text).size(36.0).color(c).strong()
+        RichText::new(text).size(30.0).color(c).strong()
     }
     pub fn headline(text: impl Into<String>, c: Color32) -> RichText {
-        RichText::new(text).size(27.0).color(c).strong()
+        RichText::new(text).size(24.0).color(c).strong()
     }
     pub fn title(text: impl Into<String>, c: Color32) -> RichText {
-        RichText::new(text).size(21.0).color(c).strong()
+        RichText::new(text).size(18.0).color(c).strong()
     }
+    /// Judul lagu atau kartu.
     pub fn title_m(text: impl Into<String>, c: Color32) -> RichText {
-        RichText::new(text).size(15.5).color(c).strong()
+        RichText::new(text).size(14.0).color(c).strong()
     }
     pub fn body(text: impl Into<String>, c: Color32) -> RichText {
         RichText::new(text).size(14.0).color(c)
@@ -141,19 +170,30 @@ pub mod type_scale {
     pub fn body_s(text: impl Into<String>, c: Color32) -> RichText {
         RichText::new(text).size(12.5).color(c)
     }
+    /// Label kecil: kapital, tebal, dipakai untuk PUSTAKA dan label tombol.
     pub fn label(text: impl Into<String>, c: Color32) -> RichText {
-        RichText::new(text).size(12.0).color(c).strong()
+        RichText::new(text.into().to_uppercase())
+            .size(11.0)
+            .color(c)
+            .strong()
+    }
+    /// Angka waktu di ujung bilah durasi.
+    pub fn time(text: impl Into<String>, c: Color32) -> RichText {
+        RichText::new(text).size(10.5).color(c)
     }
 }
 
-/// Sudut membulat khas Expressive: kartu besar, tombol penuh, sheet lebar.
+/// Bahasa bentuk kanvas: pil untuk tombol, lingkaran untuk putar, 4–8 untuk
+/// kartu dan sampul.
 pub mod shape {
-    pub const CARD: f32 = 24.0;
-    /// Radius kartu besar ala YouTube Music.
-    pub const RAD_CARD: f32 = 8.0;
+    pub const CARD: f32 = 8.0;
+    /// Radius sampul kartu.
+    pub const RAD_CARD: f32 = 6.0;
     /// Radius sampul kecil di baris lagu.
     pub const RAD_THUMB: f32 = 4.0;
-    pub const SHEET: f32 = 30.0;
-    pub const CHIP: f32 = 16.0;
-    pub const FIELD: f32 = 26.0;
+    pub const SHEET: f32 = 16.0;
+    pub const CHIP: f32 = 15.0;
+    pub const FIELD: f32 = 22.0;
+    /// Baris aktif di daftar lagu.
+    pub const ROW: f32 = 6.0;
 }
