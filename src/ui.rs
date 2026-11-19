@@ -2851,46 +2851,54 @@ impl App {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
             let (r, _) = ui.allocate_exact_size(vec2(26.0, 26.0), Sense::hover());
-            ui.painter()
-                .circle_filled(r.center(), 13.0, Color32::WHITE);
-            draw_icon(
-                ui.painter(),
-                Icon::Logo,
-                Rect::from_center_size(r.center(), vec2(15.0, 15.0)),
-                s.on_primary,
+            draw_icon(ui.painter(), Icon::Logo, r, Color32::WHITE);
+            ui.label(
+                RichText::new("Music")
+                    .size(19.0)
+                    .strong()
+                    .color(s.on_surface),
             );
-            ui.add_space(6.0);
-            ui.label(RichText::new("swara").size(17.0).strong().color(s.on_surface));
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 let logged = self.logged.clone();
                 let (av, avr) = ui.allocate_exact_size(vec2(30.0, 30.0), Sense::click());
                 ui.painter()
-                    .circle_filled(av.center(), 15.0, s.surface_highest);
+                    .circle_filled(av.center(), 14.0, s.surface_highest);
+                let initial = logged
+                    .as_ref()
+                    .map(|n| n.chars().next().unwrap_or('?').to_uppercase().to_string())
+                    .unwrap_or_else(|| "H".into());
                 ui.painter().text(
                     av.center(),
                     Align2::CENTER_CENTER,
-                    logged
-                        .as_ref()
-                        .map(|n| n.chars().next().unwrap_or('?').to_uppercase().to_string())
-                        .unwrap_or_else(|| "?".into()),
+                    initial,
                     FontId::proportional(12.5),
                     s.on_surface,
                 );
                 if avr.clicked() {
-                    if logged.is_some() {
-                        self.worker.send(Job::Logout);
-                        self.logged = None;
-                        self.toast("keluar dari akun");
-                    } else {
-                        self.worker.send(Job::Login);
+                    match logged {
+                        Some(_) => {
+                            self.worker.send(Job::Logout);
+                            self.logged = None;
+                            self.toast("keluar dari akun");
+                        }
+                        None => {
+                            self.worker.send(Job::Login);
+                        }
                     }
                 }
                 ui.add_space(10.0);
                 let (b, br) = ui.allocate_exact_size(vec2(30.0, 30.0), Sense::click());
-                draw_icon(ui.painter(), Icon::Bell, b.shrink(4.0), s.on_surface);
+                draw_icon(ui.painter(), Icon::Bell, b, s.on_surface);
                 ui.painter().circle_filled(
-                    pos2(b.right() - 4.0, b.top() + 7.0),
-                    5.0,
+                    pos2(b.right() - 2.0, b.top() + 5.0),
+                    6.0,
+                    Color32::from_rgb(198, 44, 44),
+                );
+                ui.painter().text(
+                    pos2(b.right() - 2.0, b.top() + 5.0),
+                    Align2::CENTER_CENTER,
+                    "1",
+                    FontId::proportional(8.0),
                     Color32::WHITE,
                 );
                 if br.clicked() {
@@ -2907,43 +2915,24 @@ impl App {
     /// titik 4 px di bawah label.
     fn mobile_nav(&mut self, ui: &mut Ui) {
         let s = self.scheme;
-        let full = ui.max_rect();
-        let w = full.width();
-        let tab: [(Tab, Icon, &str); 3] = [
-            (Tab::Home, Icon::Home, "Beranda"),
-            (Tab::Cari, Icon::Search, "Telusuri"),
-            (Tab::Koleksi, Icon::Library, "Koleksi"),
-        ];
-        for (i, (t, ikon, label)) in tab.into_iter().enumerate() {
-            let cx = full.left() + w * (0.5 + i as f32) / 3.0;
-            let akt = self.tab == t;
-            let fg = if akt { s.on_surface } else { s.on_surface_variant };
-            let r = Rect::from_min_size(pos2(cx - 22.0, full.top() + 8.0), vec2(44.0, 44.0));
-            draw_icon(
-                ui.painter(),
-                ikon,
-                Rect::from_center_size(pos2(cx, full.top() + 24.0), vec2(22.0, 22.0)),
-                fg,
-            );
-            ui.painter().text(
-                pos2(cx, full.top() + 46.0),
-                Align2::CENTER_CENTER,
-                label,
-                FontId::proportional(10.0),
-                fg,
-            );
-            if akt {
-                ui.painter().circle_filled(
-                    pos2(cx, full.top() + 60.0),
-                    2.0,
-                    Color32::WHITE,
-                );
+        let w = ui.available_width() / 4.0;
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 0.0;
+            let aktif = s.on_surface;
+            let redup = s.on_surface_variant;
+            if nav_item(ui, Icon::Home, "Beranda", self.tab == Tab::Home, aktif, redup, w) {
+                self.goto(Tab::Home);
             }
-            let hit = ui.interact(r, egui::Id::new(("mtab", i)), Sense::click());
-            if hit.clicked() {
-                self.goto(t);
+            if nav_item(ui, Icon::Sample, "Sampel", false, aktif, redup, w) {
+                self.toast("Sampel belum ada isinya");
             }
-        }
+            if nav_item(ui, Icon::Search, "Telusuri", self.tab == Tab::Cari, aktif, redup, w) {
+                self.goto(Tab::Cari);
+            }
+            if nav_item(ui, Icon::Library, "Koleksi", self.tab == Tab::Koleksi, aktif, redup, w) {
+                self.goto(Tab::Koleksi);
+            }
+        });
     }
 
     /// Mini player di atas bilah tab: sampul, judul, cast, putar/jeda.
@@ -2954,34 +2943,37 @@ impl App {
         let ctx = ui.ctx().clone();
         let cur = self.current.clone();
         let Some(t) = cur else { return };
-        let full = ui.max_rect();
-        let resp = ui.interact(full, egui::Id::new("mmini-hit"), Sense::click());
+        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 58.0), Sense::click());
         self.ensure_thumb(&ctx, &t.thumb);
-        let img = Rect::from_min_size(pos2(full.left(), full.center().y - 26.0), vec2(48.0, 48.0));
+        let img = Rect::from_center_size(
+            pos2(rect.left() + 31.0, rect.center().y - 3.0),
+            vec2(46.0, 46.0),
+        );
         ui.painter()
-            .rect_filled(img, Rounding::same(shape::RAD_THUMB), s.surface_high);
+            .rect_filled(img, Rounding::same(6.0), s.surface_high);
         if let Some(tex) = self.thumb_of(&t.thumb) {
             egui::Image::new((tex.id(), tex.size_vec2()))
-                .fit_to_exact_size(vec2(48.0, 48.0))
-                .rounding(Rounding::same(shape::RAD_THUMB))
+                .fit_to_exact_size(vec2(46.0, 46.0))
+                .rounding(Rounding::same(6.0))
                 .paint_at(ui, img);
         }
-        // lebar teks dibatasi tombol putar di kanan, jadi judul tidak menembus
-        let pr = Rect::from_center_size(pos2(full.right() - 20.0, full.center().y - 4.0), vec2(22.0, 22.0));
-        let teks_w = (pr.left() - img.right() - 24.0).max(60.0);
         ui.painter().text(
-            pos2(img.right() + 12.0, full.center().y - 11.0),
+            pos2(img.right() + 12.0, rect.center().y - 11.0),
             Align2::LEFT_CENTER,
-            pas(ui.ctx(), &t.title, teks_w, 13.5),
-            FontId::proportional(13.5),
+            short(&t.title, 26),
+            FontId::proportional(14.0),
             s.on_surface,
         );
         ui.painter().text(
-            pos2(img.right() + 12.0, full.center().y + 9.0),
+            pos2(img.right() + 12.0, rect.center().y + 9.0),
             Align2::LEFT_CENTER,
-            pas(ui.ctx(), &t.artist, teks_w, 11.5),
-            FontId::proportional(11.5),
+            short(&t.artist, 30),
+            FontId::proportional(12.0),
             s.on_surface_variant,
+        );
+        let pr = Rect::from_center_size(
+            pos2(rect.right() - 26.0, rect.center().y - 3.0),
+            vec2(22.0, 22.0),
         );
         draw_icon(
             ui.painter(),
@@ -2993,6 +2985,12 @@ impl App {
             pr,
             s.on_surface,
         );
+        let cr = Rect::from_center_size(
+            pos2(rect.right() - 68.0, rect.center().y - 3.0),
+            vec2(20.0, 20.0),
+        );
+        draw_icon(ui.painter(), Icon::Cast, cr, s.on_surface_variant);
+        // garis durasi tipis di dasar bilah
         let dur = self.progress.dur;
         let frac = if dur > 0.0 {
             (self.progress.pos / dur).clamp(0.0, 1.0) as f32
@@ -3000,19 +2998,22 @@ impl App {
             0.0
         };
         let bar = Rect::from_min_max(
-            pos2(full.left(), full.bottom() - 3.0),
-            pos2(full.right(), full.bottom()),
+            pos2(rect.left(), rect.bottom() - 2.0),
+            pos2(rect.right(), rect.bottom()),
         );
-        ui.painter().rect_filled(bar, Rounding::ZERO, s.outline);
+        ui.painter()
+            .rect_filled(bar, Rounding::ZERO, s.surface_highest);
         ui.painter().rect_filled(
             Rect::from_min_max(bar.min, pos2(bar.left() + bar.width() * frac, bar.bottom())),
             Rounding::ZERO,
-            Color32::WHITE,
+            s.primary,
         );
         if resp.clicked() {
             if let Some(p) = resp.interact_pointer_pos() {
-                if (p.x - pr.center().x).abs() < 26.0 {
+                if (p.x - pr.center().x).abs() < 24.0 {
                     self.toggle_play();
+                } else if (p.x - cr.center().x).abs() < 22.0 {
+                    self.toast("cast belum didukung");
                 } else {
                     self.expanded = true;
                 }
@@ -3024,12 +3025,35 @@ impl App {
     fn mobile_feed(&mut self, ui: &mut Ui) {
         let s = self.scheme;
         let rows = self.home.clone();
-        let lebar = ui.available_width();
-        let ctx = ui.ctx().clone();
         ScrollArea::vertical()
             .id_salt("mfeed")
             .auto_shrink([false, false])
             .show(ui, |ui| {
+                ScrollArea::horizontal()
+                    .id_salt("mchips")
+                    .auto_shrink([false, true])
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 8.0;
+                            for m in [
+                                "Mengisi energi",
+                                "Senang",
+                                "Bersantai",
+                                "Sedih",
+                                "Perjalanan",
+                            ] {
+                                if self.chip(ui, m, self.searched == m).clicked() {
+                                    self.query = m.to_string();
+                                    self.searched = m.to_string();
+                                    self.tab = Tab::Cari;
+                                    self.results.clear();
+                                    self.worker.send(Job::Search(m.to_string()));
+                                }
+                            }
+                        });
+                    });
+                ui.add_space(14.0);
+
                 if rows.is_empty() {
                     ui.horizontal(|ui| {
                         ui.spinner();
@@ -3038,223 +3062,85 @@ impl App {
                     });
                     return;
                 }
-                // Satu area setinggi kanvas ponsel; semua y di bawah ini relatif
-                // ke puncak isi (76 px dari atas layar).
-                // Kanvas memakai koordinat layar: isi mulai y 76. Semua gambar
-                // di bawah ini memakai origin itu, bukan posisi kursor egui,
-                // supaya y-nya sama dengan frame FigCraft.
-                let o = pos2(ui.max_rect().left(), 76.0 + self.inset_atas - 8.0);
-                let (_area, _) = ui.allocate_exact_size(vec2(lebar, 700.0), Sense::hover());
-                let p = ui.painter().clone();
-                let at = |x: f32, y: f32| pos2(o.x + x, o.y + y);
 
-                // sapaan, y 2
-                let nama = self.logged.clone().unwrap_or_else(|| "hanzu".into());
-                p.text(
-                    at(0.0, 17.0),
-                    Align2::LEFT_CENTER,
-                    format!("Halo, {}", short(&nama, 14)),
-                    FontId::proportional(22.0),
-                    s.on_surface,
-                );
-
-                // chip suasana, y 36, tinggi 30
-                let mut cx = 0.0;
-                for (i, m) in [
-                    "Mengisi energi",
-                    "Senang",
-                    "Bersantai",
-                    "Sedih",
-                    "Perjalanan",
-                ]
-                .iter()
-                .enumerate()
-                {
-                    let label = m.to_uppercase();
-                    let w = 20.0 + label.chars().count() as f32 * 6.4;
-                    if cx + w > lebar {
-                        break;
-                    }
-                    let r = Rect::from_min_size(at(cx, 36.0), vec2(w, 30.0));
-                    let aktif = i == 0;
-                    p.rect_filled(
-                        r,
-                        Rounding::same(15.0),
-                        if aktif { s.on_surface } else { s.surface_high },
-                    );
-                    p.text(
-                        r.center(),
-                        Align2::CENTER_CENTER,
-                        &label,
-                        FontId::proportional(11.0),
-                        if aktif { s.surface } else { s.on_surface_variant },
-                    );
-                    let id = egui::Id::new(("chip", i));
-                    if ui.interact(r, id, Sense::click()).clicked() {
-                        self.query = m.to_string();
-                        self.searched = m.to_string();
-                        self.tab = Tab::Cari;
-                        self.results.clear();
-                        self.worker.send(Job::Search(m.to_string()));
-                    }
-                    cx += w + 8.0;
-                }
-
-                // hero lanjutkan, y 78, tinggi 132
+                // ---- seksi pertama: daftar baris, seperti "Pilihan cepat"
                 let baris = rows[0].items.clone();
-                if let Some(c) = baris.first() {
-                    self.ensure_thumb(&ctx, &c.thumb);
-                    let hero = Rect::from_min_size(at(0.0, 78.0), vec2(lebar, 132.0));
-                    p.rect_filled(hero, Rounding::same(8.0), s.surface_low);
-                    let img = Rect::from_min_size(at(10.0, 88.0), vec2(112.0, 112.0));
-                    p.rect_filled(img, Rounding::same(6.0), s.surface_high);
-                    if let Some(t) = self.thumb_of(&c.thumb) {
-                        egui::Image::new((t.id(), t.size_vec2()))
-                            .fit_to_exact_size(vec2(112.0, 112.0))
-                            .rounding(Rounding::same(6.0))
-                            .paint_at(ui, img);
-                    }
-                    let tx = img.right() + 14.0;
-                    let lebar_teks = (hero.right() - tx - 62.0).max(80.0);
-                    p.text(
-                        pos2(tx, hero.top() + 30.0),
-                        Align2::LEFT_CENTER,
-                        "LANJUTKAN",
-                        FontId::proportional(10.5),
-                        s.on_surface_variant,
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(&rows[0].title)
+                            .size(21.0)
+                            .strong()
+                            .color(s.on_surface),
                     );
-                    p.text(
-                        pos2(tx, hero.top() + 57.0),
-                        Align2::LEFT_CENTER,
-                        pas(&ctx, &c.title, lebar_teks, 20.0),
-                        FontId::proportional(20.0),
-                        s.on_surface,
-                    );
-                    p.text(
-                        pos2(tx, hero.top() + 83.0),
-                        Align2::LEFT_CENTER,
-                        short(c.sub.split('•').next().unwrap_or("").trim(), 20),
-                        FontId::proportional(11.5),
-                        s.on_surface_variant,
-                    );
-                    let putar = pos2(hero.right() - 40.0, hero.center().y);
-                    p.circle_filled(putar, 23.0, s.on_surface);
-                    draw_icon(
-                        &p,
-                        Icon::Play,
-                        Rect::from_center_size(putar, vec2(18.0, 18.0)),
-                        s.surface,
-                    );
-                    if ui
-                        .interact(hero, egui::Id::new("hero"), Sense::click())
-                        .clicked()
-                    {
-                        self.open_card(c);
-                    }
-                }
-
-                // judul seksi 1, y 230
-                p.text(
-                    at(0.0, 242.0),
-                    Align2::LEFT_CENTER,
-                    "Pilihan cepat",
-                    FontId::proportional(18.0),
-                    s.on_surface,
-                );
-
-                // tiga baris, y 260 / 314 / 368
-                for i in 0..3 {
-                    let Some(c) = baris.get(i) else { break };
-                    self.ensure_thumb(&ctx, &c.thumb);
-                    let y = 260.0 + i as f32 * 54.0;
-                    let r = Rect::from_min_size(at(0.0, y), vec2(lebar, 54.0));
-                    let img = Rect::from_min_size(at(0.0, y + 5.0), vec2(44.0, 44.0));
-                    p.rect_filled(img, Rounding::same(6.0), s.surface_high);
-                    if let Some(t) = self.thumb_of(&c.thumb) {
-                        egui::Image::new((t.id(), t.size_vec2()))
-                            .fit_to_exact_size(vec2(44.0, 44.0))
-                            .rounding(Rounding::same(6.0))
-                            .paint_at(ui, img);
-                    }
-                    let playing = self.current.as_ref().map(|t| t.id == c.id).unwrap_or(false);
-                    let x = img.right() + 12.0;
-                    p.text(
-                        pos2(x, r.center().y - 9.0),
-                        Align2::LEFT_CENTER,
-                        pas(&ctx, &c.title, r.right() - x - 34.0, 14.0),
-                        FontId::proportional(14.0),
-                        if playing { s.primary } else { s.on_surface },
-                    );
-                    p.text(
-                        pos2(x, r.center().y + 9.0),
-                        Align2::LEFT_CENTER,
-                        short(
-                            &c.sub
-                                .split('•')
-                                .take(2)
-                                .map(str::trim)
-                                .collect::<Vec<_>>()
-                                .join(" · "),
-                            26,
-                        ),
-                        FontId::proportional(11.5),
-                        s.on_surface_variant,
-                    );
-                    draw_icon(
-                        &p,
-                        Icon::More,
-                        Rect::from_center_size(
-                            pos2(r.right() - 12.0, r.center().y),
-                            vec2(16.0, 16.0),
-                        ),
-                        s.on_surface_variant,
-                    );
-                    if ui
-                        .interact(r, egui::Id::new(("baris", i)), Sense::click())
-                        .clicked()
-                    {
-                        self.open_card(c);
-                    }
-                }
-
-                // seksi 2: judul y 448, grid y 480
-                if let Some(row) = rows.get(1) {
-                    p.text(
-                        at(0.0, 460.0),
-                        Align2::LEFT_CENTER,
-                        short(&row.title, 26),
-                        FontId::proportional(18.0),
-                        s.on_surface,
-                    );
-                    let gap = 8.0;
-                    let cw = ((lebar - gap * 2.0) / 3.0).floor();
-                    for (i, c) in row.items.iter().take(3).enumerate() {
-                        self.ensure_thumb(&ctx, &c.thumb);
-                        let x = i as f32 * (cw + gap);
-                        let img = Rect::from_min_size(at(x, 480.0), vec2(cw, cw));
-                        p.rect_filled(img, Rounding::same(6.0), s.surface_high);
-                        if let Some(t) = self.thumb_of(&c.thumb) {
-                            egui::Image::new((t.id(), t.size_vec2()))
-                                .fit_to_exact_size(vec2(cw, cw))
-                                .rounding(Rounding::same(6.0))
-                                .paint_at(ui, img);
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if self.chip(ui, "Putar semua", false).clicked() {
+                            let q: Vec<Track> = baris
+                                .iter()
+                                .filter(|c| c.kind == "song")
+                                .map(|c| Track {
+                                    id: c.id.clone(),
+                                    title: c.title.clone(),
+                                    artist: c
+                                        .sub
+                                        .split('•')
+                                        .next()
+                                        .unwrap_or("")
+                                        .trim()
+                                        .to_string(),
+                                    album: String::new(),
+                                    thumb: c.thumb.clone(),
+                                    dur: String::new(),
+                                    secs: 0.0,
+                                })
+                                .collect();
+                            if let Some(first) = q.first().cloned() {
+                                self.play_track(first, Some(q));
+                            } else if let Some(c) = baris.first() {
+                                self.open_card(c);
+                            }
                         }
-                        p.text(
-                            pos2(img.left(), img.bottom() + 16.0),
-                            Align2::LEFT_CENTER,
-                            short(&c.title, (cw / 6.2).max(8.0) as usize),
-                            FontId::proportional(11.5),
-                            s.on_surface,
+                    });
+                });
+                ui.add_space(6.0);
+                for (i, c) in baris.iter().take(6).enumerate() {
+                    if self.mobile_row(ui, c, i) {
+                        self.open_card(c);
+                    }
+                }
+
+                // ---- seksi berikutnya: grid 3 kolom dengan judul di atas gambar.
+                // Dulu cuma tiga seksi, jadi beranda ponsel jauh lebih pendek
+                // daripada desktop tanpa alasan.
+                for row in rows.iter().skip(1) {
+                    ui.add_space(20.0);
+                    ui.horizontal(|ui| {
+                        if row.title.to_lowercase().contains("pintasan") {
+                            let (av, _) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::hover());
+                            ui.painter()
+                                .circle_filled(av.center(), 11.0, s.surface_highest);
+                        }
+                        ui.label(
+                            RichText::new(&row.title)
+                                .size(21.0)
+                                .strong()
+                                .color(s.on_surface),
                         );
-                        let r = Rect::from_min_size(at(x, 480.0), vec2(cw, cw + 26.0));
-                        if ui
-                            .interact(r, egui::Id::new(("ubin", i)), Sense::click())
-                            .clicked()
-                        {
-                            self.open_card(c);
-                        }
+                    });
+                    ui.add_space(8.0);
+                    let gap = 8.0;
+                    let avail = ui.available_width();
+                    let cw = ((avail - gap * 2.0) / 3.0).floor();
+                    for chunk in row.items.chunks(3) {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = gap;
+                            for c in chunk {
+                                self.mobile_tile(ui, c, cw);
+                            }
+                        });
+                        ui.add_space(gap);
                     }
                 }
+                ui.add_space(48.0);
             });
     }
 
@@ -3265,27 +3151,32 @@ impl App {
         let ctx = ui.ctx().clone();
         self.ensure_thumb(&ctx, &c.thumb);
         let playing = self.current.as_ref().map(|t| t.id == c.id).unwrap_or(false);
-        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 54.0), Sense::click());
-        let img = Rect::from_min_size(pos2(rect.left(), rect.top() + 5.0), vec2(44.0, 44.0));
+        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 62.0), Sense::click());
+        let img = Rect::from_center_size(
+            pos2(rect.left() + 26.0, rect.center().y),
+            vec2(52.0, 52.0),
+        );
         ui.painter()
             .rect_filled(img, Rounding::same(6.0), s.surface_high);
         if let Some(tex) = self.thumb_of(&c.thumb) {
             egui::Image::new((tex.id(), tex.size_vec2()))
-                .fit_to_exact_size(vec2(44.0, 44.0))
+                .fit_to_exact_size(vec2(52.0, 52.0))
                 .rounding(Rounding::same(6.0))
                 .paint_at(ui, img);
         }
         let x = img.right() + 12.0;
         ui.painter().text(
-            pos2(x, rect.center().y - 9.0),
+            pos2(x, rect.center().y - 10.0),
             Align2::LEFT_CENTER,
-            pas(ui.ctx(), &c.title, rect.right() - x - 34.0, 14.0),
-            FontId::proportional(14.0),
+            short(&c.title, 30),
+            FontId::proportional(14.5),
             if playing { s.primary } else { s.on_surface },
         );
         ui.painter().text(
-            pos2(x, rect.center().y + 9.0),
+            pos2(x, rect.center().y + 10.0),
             Align2::LEFT_CENTER,
+            // YouTube Music cuma menampilkan artis + jumlah pemutaran; potongan
+            // lirik di segmen ketiga membuat subteks sesak dan kepotong.
             short(
                 &c.sub
                     .split('•')
@@ -3293,15 +3184,18 @@ impl App {
                     .map(str::trim)
                     .collect::<Vec<_>>()
                     .join(" · "),
-                26,
+                30,
             ),
-            FontId::proportional(11.5),
+            FontId::proportional(12.0),
             s.on_surface_variant,
         );
         draw_icon(
             ui.painter(),
             Icon::More,
-            Rect::from_center_size(pos2(rect.right() - 12.0, rect.center().y), vec2(16.0, 16.0)),
+            Rect::from_center_size(
+                pos2(rect.right() - 16.0, rect.center().y),
+                vec2(18.0, 18.0),
+            ),
             s.on_surface_variant,
         );
         resp.clicked()
@@ -3312,22 +3206,33 @@ impl App {
         let s = self.scheme;
         let ctx = ui.ctx().clone();
         self.ensure_thumb(&ctx, &c.thumb);
-        let (rect, resp) = ui.allocate_exact_size(vec2(w, w + 26.0), Sense::click());
-        let img = Rect::from_min_size(rect.min, vec2(w, w));
+        let (rect, resp) = ui.allocate_exact_size(vec2(w, w), Sense::click());
         ui.painter()
-            .rect_filled(img, Rounding::same(6.0), s.surface_high);
+            .rect_filled(rect, Rounding::same(6.0), s.surface_high);
         if let Some(tex) = self.thumb_of(&c.thumb) {
             egui::Image::new((tex.id(), tex.size_vec2()))
                 .fit_to_exact_size(vec2(w, w))
                 .rounding(Rounding::same(6.0))
-                .paint_at(ui, img);
+                .paint_at(ui, rect);
         }
+        // gradasi gelap di kaki kartu supaya judul terbaca
+        let kaki = Rect::from_min_max(pos2(rect.left(), rect.bottom() - w * 0.42), rect.max);
+        let mut mesh = egui::Mesh::default();
+        let atas = s.surface.gamma_multiply(0.0);
+        let bawah = Color32::from_black_alpha(190);
+        mesh.colored_vertex(kaki.left_top(), atas);
+        mesh.colored_vertex(kaki.right_top(), atas);
+        mesh.colored_vertex(kaki.left_bottom(), bawah);
+        mesh.colored_vertex(kaki.right_bottom(), bawah);
+        mesh.add_triangle(0, 1, 2);
+        mesh.add_triangle(1, 3, 2);
+        ui.painter().add(Shape::mesh(mesh));
         ui.painter().text(
-            pos2(rect.left(), rect.bottom() - 8.0),
-            Align2::LEFT_CENTER,
-            short(&c.title, (w / 6.2).max(8.0) as usize),
+            pos2(rect.center().x, rect.bottom() - 8.0),
+            Align2::CENTER_BOTTOM,
+            short(&c.title, (w / 7.4).max(8.0) as usize),
             FontId::proportional(11.5),
-            s.on_surface,
+            Color32::WHITE,
         );
         if resp.clicked() {
             self.open_card(c);
@@ -3341,28 +3246,25 @@ impl App {
     fn mobile(&mut self, ctx: &egui::Context, _w: f32) {
         let s = self.scheme;
         let bawah = self.inset_bawah;
-        // Nav bawah 68 px: ikon 22, label 10, titik 4 px untuk tab aktif.
         egui::TopBottomPanel::bottom("mnav")
             .resizable(false)
-            .exact_height(68.0 + bawah)
+            .exact_height(56.0 + bawah)
             .frame(
                 egui::Frame::none()
                     .fill(s.surface_low)
-                    .stroke(egui::Stroke::new(1.0, s.outline_variant))
                     .inner_margin(egui::Margin {
                         left: 0.0,
                         right: 0.0,
-                        top: 0.0,
-                        bottom: bawah,
+                        top: 2.0,
+                        bottom: 2.0 + bawah,
                     }),
             )
             .show(ctx, |ui| self.mobile_nav(ui));
 
-        // Mini player menempel di atas nav, tinggi 68 px.
         if self.current.is_some() {
             egui::TopBottomPanel::bottom("mmini")
                 .resizable(false)
-                .exact_height(68.0)
+                .exact_height(58.0)
                 .frame(
                     egui::Frame::none()
                         .fill(s.surface_low)
@@ -3374,18 +3276,15 @@ impl App {
         let atas = self.inset_atas;
         egui::TopBottomPanel::top("mhead")
             .resizable(false)
-            .exact_height(76.0 + atas)
+            .exact_height(54.0 + atas)
             .frame(
                 egui::Frame::none()
                     .fill(s.surface)
                     .inner_margin(egui::Margin {
-                        left: 16.0,
-                        right: 16.0,
-                        // Kanvas: logo di y 34 karena di atasnya ada bilah status
-                        // 24 px. Di Android tinggi itu datang dari `atas`, jadi
-                        // margin atas cukup 10 + atas, bukan 34 + atas.
+                        left: 14.0,
+                        right: 14.0,
                         top: 10.0 + atas,
-                        bottom: 0.0,
+                        bottom: 10.0,
                     }),
             )
             .show(ctx, |ui| self.mobile_header(ui));
@@ -3394,7 +3293,7 @@ impl App {
             .frame(
                 egui::Frame::none()
                     .fill(s.surface)
-                    .inner_margin(egui::Margin::symmetric(16.0, 0.0)),
+                    .inner_margin(egui::Margin::symmetric(14.0, 0.0)),
             )
             .show(ctx, |ui| match self.tab {
                 Tab::Home => self.mobile_feed(ui),
@@ -3505,227 +3404,148 @@ impl App {
         let bawah = self.inset_bawah;
         egui::CentralPanel::default()
             .frame(
-                egui::Frame::none().fill(s.surface).inner_margin(egui::Margin {
-                    left: 0.0,
-                    right: 0.0,
-                    top: atas,
-                    bottom: bawah,
-                }),
+                egui::Frame::none()
+                    .fill(s.surface)
+                    .inner_margin(egui::Margin {
+                        left: 18.0,
+                        right: 18.0,
+                        top: 12.0 + atas,
+                        bottom: 12.0 + bawah,
+                    }),
             )
             .show(ctx, |ui| {
-                let full = ui.max_rect();
-                let pad = 16.0;
-                let lebar = full.width() - pad * 2.0;
-                let dasar = full.bottom();
+                // ---- baris atas
+                ui.horizontal(|ui| {
+                    let (r, resp) = ui.allocate_exact_size(vec2(34.0, 34.0), Sense::click());
+                    draw_icon(ui.painter(), Icon::ChevronDown, r, s.on_surface);
+                    if resp.clicked() {
+                        tutup = true;
+                    }
+                });
+                ui.add_space(10.0);
 
-                // Kanvas: chip 560, waktu 648, tombol putar 692 (tengah 722)
-                // pada layar 844. Jarak dari dasar dipakai supaya proporsinya
-                // sama di layar lain.
-                let y_putar = dasar - 122.0;
-                let y_waktu = dasar - 196.0;
-                let y_chip = dasar - 284.0;
-                let y_artis = dasar - 318.0;
-                let y_judul = dasar - 350.0;
-
-                if self.show_lyrics {
-                    self.mobile_lirik(ui, full, pad, y_chip);
-                } else if self.show_queue {
-                    self.mobile_antrean(ui, full, pad, y_chip);
-                } else {
-                    // ---- sampul selebar layar dari y84, dengan pudar 65 px
-                    let atas_sampul = full.top() + 84.0;
-                    let sisi = (lebar + pad * 2.0).min((y_judul - 20.0 - atas_sampul).max(80.0));
-                    let img = Rect::from_min_size(
-                        pos2(full.left(), atas_sampul),
-                        vec2(full.width(), sisi),
+                // ---- sampul besar
+                // Saat panel lirik/antrean dibuka, sampul besar dilepas supaya
+                // ruangnya dipakai isi panel; di ponsel tidak ada panel samping.
+                let w = ui.available_width();
+                if !(self.show_lyrics || self.show_queue) {
+                    let img = Rect::from_center_size(
+                        pos2(ui.max_rect().center().x, ui.cursor().top() + w / 2.0),
+                        vec2(w, w),
                     );
                     ui.painter()
-                        .rect_filled(img, Rounding::ZERO, s.surface_high);
+                        .rect_filled(img, Rounding::same(10.0), s.surface_high);
                     if let Some(t) = &cur {
                         let ctx2 = ui.ctx().clone();
                         self.ensure_thumb(&ctx2, &t.thumb);
                         if let Some(tex) = self.thumb_of(&t.thumb) {
                             egui::Image::new((tex.id(), tex.size_vec2()))
-                                .fit_to_exact_size(img.size())
+                                .fit_to_exact_size(vec2(w, w))
+                                .rounding(Rounding::same(10.0))
                                 .paint_at(ui, img);
                         }
                     }
-                    // 18 strip 3,6 px di tepi atas dan bawah (kanvas: `pudar`)
-                    for i in 0..18 {
-                        let a = 0.30 - i as f32 * 0.016;
-                        let a = a.max(0.02);
-                        for (dasar_strip, arah) in [(img.top(), 1.0), (img.bottom(), -1.0)] {
-                            let yy = dasar_strip + arah * (i as f32 * 3.6);
-                            let y0 = if arah > 0.0 { yy } else { yy - 3.6 };
-                            ui.painter().rect_filled(
-                                Rect::from_min_size(pos2(img.left(), y0), vec2(img.width(), 3.6)),
-                                Rounding::ZERO,
-                                s.surface.gamma_multiply(a),
-                            );
-                        }
-                    }
-                    // chevron tutup di pojok kiri atas
-                    let chev = Rect::from_min_size(
-                        pos2(full.left() + pad, full.top() + 44.0),
-                        vec2(28.0, 28.0),
-                    );
-                    draw_icon(ui.painter(), Icon::ChevronDown, chev, s.on_surface);
-                    if ui
-                        .interact(chev.expand(8.0), egui::Id::new("mp-tutup"), Sense::click())
-                        .clicked()
-                    {
-                        tutup = true;
-                    }
+                    ui.advance_cursor_after_rect(img);
+                    ui.add_space(16.0);
                 }
 
-                // ---- judul 24 di 494, artis 12 di 526
+                // ---- judul + artis
                 let judul = cur.as_ref().map(|t| t.title.clone()).unwrap_or_default();
-                let artis = cur.as_ref().map(|t| {
-                    let album = t.album.trim();
-                    if album.is_empty() {
-                        t.artist.clone()
-                    } else {
-                        format!("{} · {}", t.artist, album)
+                let artis = cur.as_ref().map(|t| t.artist.clone()).unwrap_or_default();
+                ui.label(RichText::new(short(&judul, 30)).size(22.0).strong().color(s.on_surface));
+                ui.label(RichText::new(short(&artis, 36)).size(13.0).color(s.on_surface_variant));
+                ui.add_space(12.0);
+
+                // ---- pil aksi
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 8.0;
+                    let aksi: [(Icon, &str); 4] = [
+                        (Icon::Like, "Suka"),
+                        (Icon::Dislike, "Tidak"),
+                        (Icon::Lyrics, "Lirik"),
+                        (Icon::Queue, "Antrean"),
+                    ];
+                    let nilai = self
+                        .current
+                        .as_ref()
+                        .and_then(|t| self.rating.get(&t.id).copied())
+                        .unwrap_or(0);
+                    for (ikon, label) in aksi {
+                        let nyala = match label {
+                            "Suka" => nilai == 1,
+                            "Tidak" => nilai == -1,
+                            "Lirik" => self.show_lyrics && !self.show_queue,
+                            "Antrean" => self.show_queue && !self.show_lyrics,
+                            _ => false,
+                        };
+                        if self.chip_ikon(ui, ikon, label, nyala) {
+                            match label {
+                                "Suka" => self.nilai_lagu(1),
+                                "Tidak" => self.nilai_lagu(-1),
+                                "Lirik" => {
+                                    let buka = !(self.show_lyrics && !self.show_queue);
+                                    self.show_lyrics = buka;
+                                    self.show_queue = false;
+                                }
+                                "Antrean" => {
+                                    let buka = !(self.show_queue && !self.show_lyrics);
+                                    self.show_queue = buka;
+                                    self.show_lyrics = false;
+                                }
+                                _ => self.toast("belum didukung"),
+                            }
+                        }
                     }
                 });
-                ui.painter().text(
-                    pos2(full.left() + pad, y_judul),
-                    Align2::LEFT_CENTER,
-                    pas(ui.ctx(), &judul, lebar, 24.0),
-                    FontId::proportional(24.0),
-                    s.on_surface,
-                );
-                ui.painter().text(
-                    pos2(full.left() + pad, y_artis),
-                    Align2::LEFT_CENTER,
-                    pas(ui.ctx(), &artis.unwrap_or_default(), lebar, 12.0),
-                    FontId::proportional(12.0),
-                    s.on_surface_variant,
-                );
+                ui.add_space(10.0);
 
-                // ---- chip 30 px di 560: SUKA, TIDAK, LIRIK, ANTREAN
-                let aksi: [(Icon, &str); 4] = [
-                    (Icon::Like, "Suka"),
-                    (Icon::Dislike, "Tidak"),
-                    (Icon::Lyrics, "Lirik"),
-                    (Icon::Queue, "Antrean"),
-                ];
-                let nilai = self
-                    .current
-                    .as_ref()
-                    .and_then(|t| self.rating.get(&t.id).copied())
-                    .unwrap_or(0);
-                let mut x = full.left() + pad;
-                for (ikon, label) in aksi {
-                    let nyala = match label {
-                        "Suka" => nilai == 1,
-                        "Tidak" => nilai == -1,
-                        "Lirik" => self.show_lyrics,
-                        "Antrean" => self.show_queue,
-                        _ => false,
-                    };
-                    let lebar_chip = 34.0 + label.chars().count() as f32 * 7.0;
-                    if x + lebar_chip > full.right() - pad {
-                        break;
-                    }
-                    let r = Rect::from_min_size(pos2(x, y_chip - 15.0), vec2(lebar_chip, 30.0));
-                    let latar = if nyala { Color32::WHITE } else { s.surface_high };
-                    let fg = if nyala { s.on_primary } else { s.on_surface };
-                    ui.painter().rect_filled(r, Rounding::same(shape::CHIP), latar);
-                    draw_ikon(
-                        ui.painter(),
-                        ikon,
-                        Rect::from_center_size(pos2(r.left() + 17.0, r.center().y), vec2(15.0, 15.0)),
-                        fg,
-                        nyala,
-                    );
-                    ui.painter().text(
-                        pos2(r.left() + 29.0, r.center().y),
-                        Align2::LEFT_CENTER,
-                        label.to_uppercase(),
-                        FontId::proportional(10.5),
-                        fg,
-                    );
-                    let hit = ui.interact(r, egui::Id::new(("mp-chip", label)), Sense::click());
-                    if hit.clicked() {
-                        match label {
-                            "Suka" => self.nilai_lagu(1),
-                            "Tidak" => self.nilai_lagu(-1),
-                            "Lirik" => {
-                                self.show_lyrics = !self.show_lyrics;
-                                self.show_queue = false;
-                            }
-                            _ => {
-                                self.show_queue = !self.show_queue;
-                                self.show_lyrics = false;
-                            }
-                        }
-                    }
-                    x += lebar_chip + 8.0;
+                // ---- panel lirik / antrean
+                if self.show_lyrics || self.show_queue {
+                    let h = (ui.available_height() - 156.0).clamp(110.0, 420.0);
+                    self.side_panel_body(ui, h);
+                    ui.add_space(6.0);
                 }
 
-                // ---- track durasi di 636 (bawah 208), waktu di 648
-                let track_rect = Rect::from_min_size(
-                    pos2(full.left() + pad, y_waktu - 12.0),
-                    vec2(lebar, 3.0),
-                );
-                ui.painter()
-                    .rect_filled(track_rect, Rounding::same(1.5), s.outline);
-                let pos_now = self.drag_pos.unwrap_or(self.progress.pos);
-                if dur > 0.0 {
-                    let f = (pos_now / dur).clamp(0.0, 1.0) as f32;
-                    ui.painter().rect_filled(
-                        Rect::from_min_max(
-                            track_rect.min,
-                            pos2(track_rect.left() + track_rect.width() * f, track_rect.bottom()),
-                        ),
-                        Rounding::same(1.5),
-                        Color32::WHITE,
-                    );
-                }
-                let hit = ui.interact(
-                    track_rect.expand2(vec2(0.0, 14.0)),
-                    egui::Id::new("mp-seek"),
-                    Sense::click(),
-                );
-                if hit.clicked() && dur > 0.0 {
-                    if let Some(p) = hit.interact_pointer_pos() {
-                        let f =
-                            ((p.x - track_rect.left()) / track_rect.width().max(1.0)).clamp(0.0, 1.0);
-                        seek_ke = Some(f as f64 * dur);
-                    }
-                }
-                ui.painter().text(
-                    pos2(full.left() + pad, y_waktu),
-                    Align2::LEFT_CENTER,
-                    fmt_time(pos_now),
-                    FontId::proportional(11.0),
-                    s.on_surface_variant,
-                );
-                ui.painter().text(
-                    pos2(full.right() - pad, y_waktu),
-                    Align2::RIGHT_CENTER,
-                    fmt_time(dur),
-                    FontId::proportional(11.0),
-                    s.on_surface_variant,
-                );
+                ui.add_space(4.0);
 
-                // ---- transport: shuffle 29, prev 91, putar 60 di tengah,
-                //      next 280, repeat 349 (kanvas 390 lebar)
+                // ---- bilah durasi
+                if let Some(v) = self.seek_bar(ui, dur, ui.available_width()) {
+                    seek_ke = Some(v);
+                }
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(fmt_time(self.progress.pos))
+                            .size(11.5)
+                            .color(s.on_surface_variant),
+                    );
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.label(
+                            RichText::new(fmt_time(dur))
+                                .size(11.5)
+                                .color(s.on_surface_variant),
+                        );
+                    });
+                });
+                ui.add_space(8.0);
+
+                // ---- kontrol
+                let w = ui.available_width();
+                let (rect, _) = ui.allocate_exact_size(vec2(w, 66.0), Sense::hover());
+                let cy = rect.center().y;
                 let xs = [
-                    full.left() + pad + 15.0,
-                    full.center().x - 104.0,
-                    full.center().x,
-                    full.center().x + 104.0,
-                    full.right() - pad - 15.0,
+                    rect.left() + 24.0,
+                    rect.left() + w * 0.30,
+                    rect.center().x,
+                    rect.left() + w * 0.70,
+                    rect.right() - 24.0,
                 ];
                 for (i, ikon) in [Icon::Shuffle, Icon::Prev, Icon::Play, Icon::Next, Icon::Repeat]
                     .into_iter()
                     .enumerate()
                 {
                     if i == 2 {
-                        let r = Rect::from_center_size(pos2(xs[2], y_putar), vec2(60.0, 60.0));
-                        ui.painter().circle_filled(r.center(), 30.0, Color32::WHITE);
+                        let besar = Rect::from_center_size(pos2(xs[2], cy), vec2(62.0, 62.0));
+                        ui.painter().circle_filled(besar.center(), 31.0, s.on_surface);
                         draw_icon(
                             ui.painter(),
                             if self.progress.playing {
@@ -3733,34 +3553,57 @@ impl App {
                             } else {
                                 Icon::Play
                             },
-                            Rect::from_center_size(r.center(), vec2(20.0, 20.0)),
-                            s.on_primary,
+                            Rect::from_center_size(besar.center(), vec2(28.0, 28.0)),
+                            s.surface,
                         );
-                        let hitr = ui.interact(r, egui::Id::new("mplay"), Sense::click());
-                        if hitr.clicked() {
+                        let r = ui.interact(besar, egui::Id::new("mplay"), Sense::click());
+                        if r.clicked() {
                             self.toggle_play();
                         }
-                        continue;
-                    }
-                    let r = Rect::from_center_size(pos2(xs[i], y_putar), vec2(40.0, 40.0));
-                    let nyala = (i == 0 && self.shuffle_on) || (i == 4 && self.ulangi > 0);
-                    let warna = if nyala { s.on_surface } else { s.on_surface_variant };
-                    let sisi = if i == 1 || i == 3 { 24.0 } else { 20.0 };
-                    draw_ikon(
-                        ui.painter(),
-                        ikon,
-                        Rect::from_center_size(r.center(), vec2(sisi, sisi)),
-                        warna,
-                        nyala,
-                    );
-                    let hitr = ui.interact(r, egui::Id::new(("mctl", i)), Sense::click());
-                    if hitr.clicked() {
-                        match i {
-                            0 => self.shuffle_queue(),
-                            1 => self.next_track(-1),
-                            3 => self.next_track(1),
-                            _ => self.putar_ulang(),
+                    } else {
+                        let r = ui.interact(
+                            Rect::from_center_size(pos2(xs[i], cy), vec2(40.0, 40.0)),
+                            egui::Id::new(("mctl", i)),
+                            Sense::click(),
+                        );
+                        let nyala = (i == 0 && self.shuffle_on) || (i == 4 && self.ulangi > 0);
+                        let warna = if nyala {
+                            s.primary
+                        } else if i == 0 || i == 4 {
+                            s.on_surface_variant
+                        } else {
+                            s.on_surface
+                        };
+                        draw_ikon(
+                            ui.painter(),
+                            ikon,
+                            Rect::from_center_size(pos2(xs[i], cy), vec2(22.0, 22.0)),
+                            warna,
+                            nyala,
+                        );
+                        if r.clicked() {
+                            match i {
+                                0 => self.shuffle_queue(),
+                                1 => self.next_track(-1),
+                                3 => self.next_track(1),
+                                _ => self.putar_ulang(),
+                            }
                         }
+                    }
+                }
+                ui.add_space(10.0);
+
+                // ---- handle + Mix
+                let (h, _) = ui.allocate_exact_size(vec2(ui.available_width(), 12.0), Sense::hover());
+                ui.painter().rect_filled(
+                    Rect::from_center_size(h.center(), vec2(34.0, 3.0)),
+                    Rounding::same(2.0),
+                    s.on_surface_variant.gamma_multiply(0.5),
+                );
+                ui.add_space(6.0);
+                if self.chip(ui, &format!("Mix {}", short(&judul, 18)), false).clicked() {
+                    if let Some(t) = self.current.clone() {
+                        self.worker.send(Job::Radio(t.id));
                     }
                 }
             });
@@ -3772,193 +3615,6 @@ impl App {
         }
     }
 
-    /// Panel lirik ponsel, tata letak sendiri seperti kanvas `M · Pemutar lirik`:
-    /// sampul 56 di (16,82), judul 18, chip di 148, label LIRIK di 194, baris
-    /// lirik mulai 220 dengan jarak 42, baris aktif 17 tebal.
-    fn mobile_lirik(&mut self, ui: &mut Ui, full: Rect, pad: f32, y_chip: f32) {
-        let s = self.scheme;
-        let cur = self.current.clone();
-        let dasar = full.bottom();
-        // Kanvas 844: sampul 82, chip 148, label 194, lirik 220.
-        let y_sampul = full.top() + 82.0;
-        let y_judul = full.top() + 88.0;
-        let y_artis = full.top() + 112.0;
-        let y_label = y_chip - 25.0;
-        let y_lirik = y_chip + 22.0;
-
-        if let Some(t) = &cur {
-            let ctx2 = ui.ctx().clone();
-            self.ensure_thumb(&ctx2, &t.thumb);
-            let img = Rect::from_min_size(pos2(full.left() + pad, y_sampul), vec2(56.0, 56.0));
-            ui.painter()
-                .rect_filled(img, Rounding::same(shape::RAD_THUMB), s.surface_high);
-            if let Some(tex) = self.thumb_of(&t.thumb) {
-                egui::Image::new((tex.id(), tex.size_vec2()))
-                    .fit_to_exact_size(vec2(56.0, 56.0))
-                    .rounding(Rounding::same(shape::RAD_THUMB))
-                    .paint_at(ui, img);
-            }
-            ui.painter().text(
-                pos2(full.left() + pad + 56.0 + 12.0, y_judul),
-                Align2::LEFT_CENTER,
-                pas(ui.ctx(), &t.title, full.width() - pad * 2.0 - 68.0, 18.0),
-                FontId::proportional(18.0),
-                s.on_surface,
-            );
-            ui.painter().text(
-                pos2(full.left() + pad + 56.0 + 12.0, y_artis),
-                Align2::LEFT_CENTER,
-                pas(ui.ctx(), &t.artist, full.width() - pad * 2.0 - 68.0, 11.5),
-                FontId::proportional(11.5),
-                s.on_surface_variant,
-            );
-        }
-        ui.painter().text(
-            pos2(full.left() + pad, y_label),
-            Align2::LEFT_CENTER,
-            "LIRIK",
-            FontId::proportional(10.5),
-            s.on_surface_variant,
-        );
-
-        // Area lirik: mulai 220 sampai di atas track durasi.
-        let area = Rect::from_min_size(
-            pos2(full.left() + pad, y_lirik - 10.0),
-            vec2(full.width() - pad * 2.0, (dasar - 208.0) - y_lirik),
-        );
-        ui.allocate_new_ui(
-            egui::UiBuilder::new()
-                .max_rect(area)
-                .layout(Layout::top_down(Align::Min)),
-            |ui| {
-                ui.set_clip_rect(area);
-                ui.set_width(area.width());
-                let Some(l) = self.lyrics.clone() else {
-                    let tunggu = self
-                        .lyrics_diminta
-                        .map(|t| t.elapsed().as_secs_f32())
-                        .unwrap_or(9.0);
-                    if tunggu < 6.0 {
-                        ui.label(ts::body_s("Menyiapkan lirik…", s.on_surface_variant));
-                        if tunggu > 3.0 {
-                            if let Some(cur) = self.current.clone() {
-                                self.minta_lirik(cur);
-                            }
-                        }
-                    } else {
-                        ui.label(ts::body_s(
-                            "Lirik tidak tersedia untuk lagu ini.",
-                            s.on_surface_variant,
-                        ));
-                        ui.add_space(6.0);
-                        if self.chip(ui, "Coba lagi", false).clicked() {
-                            if let Some(cur) = self.current.clone() {
-                                self.lyrics_diminta = None;
-                                self.minta_lirik(cur);
-                            }
-                        }
-                    }
-                    return;
-                };
-                if l.synced.is_empty() {
-                    let txt = if l.text.is_empty() {
-                        "Tidak ada lirik untuk lagu ini".to_string()
-                    } else {
-                        l.text.clone()
-                    };
-                    ui.label(RichText::new(txt).size(14.5).color(s.on_surface_variant));
-                    return;
-                }
-                let pos = self.progress.pos;
-                let aktif = l
-                    .synced
-                    .iter()
-                    .position(|line| line.t > pos)
-                    .unwrap_or(l.synced.len())
-                    .saturating_sub(1);
-                ScrollArea::vertical()
-                    .id_salt("mlyr")
-                    .auto_shrink([false, false])
-                    .vertical_scroll_offset(((aktif as f32) * 42.0 - area.height() * 0.4).max(0.0))
-                    .show(ui, |ui| {
-                        for (i, line) in l.synced.iter().enumerate() {
-                            let kini = i == aktif;
-                            ui.add_space(10.0);
-                            ui.label(
-                                RichText::new(&line.text)
-                                    .size(if kini { 17.0 } else { 14.5 })
-                                    .strong()
-                                    .color(if kini { s.on_surface } else { s.on_surface_variant }),
-                            );
-                            ui.add_space(8.0);
-                        }
-                    });
-            },
-        );
-    }
-
-    /// Panel antrean ponsel, kanvas `M · Pemutar antrean`: judul 20 di 84,
-    /// chip di 140, label ANTREAN di 182, baris 50 px dengan sampul 38.
-    fn mobile_antrean(&mut self, ui: &mut Ui, full: Rect, pad: f32, y_chip: f32) {
-        let s = self.scheme;
-        let cur = self.current.clone();
-        let dasar = full.bottom();
-        let y_judul = full.top() + 84.0;
-        let y_artis = full.top() + 110.0;
-        let y_label = y_chip - 14.0;
-        let y_baris = y_chip + 32.0;
-
-        if let Some(t) = &cur {
-            ui.painter().text(
-                pos2(full.left() + pad, y_judul),
-                Align2::LEFT_CENTER,
-                pas(ui.ctx(), &t.title, full.width() - pad * 2.0, 20.0),
-                FontId::proportional(20.0),
-                s.on_surface,
-            );
-            ui.painter().text(
-                pos2(full.left() + pad, y_artis),
-                Align2::LEFT_CENTER,
-                pas(ui.ctx(), &t.artist, full.width() - pad * 2.0, 11.5),
-                FontId::proportional(11.5),
-                s.on_surface_variant,
-            );
-        }
-        ui.painter().text(
-            pos2(full.left() + pad, y_label),
-            Align2::LEFT_CENTER,
-            "ANTREAN",
-            FontId::proportional(10.5),
-            s.on_surface_variant,
-        );
-
-        let area = Rect::from_min_size(
-            pos2(full.left() + pad, y_baris),
-            vec2(full.width() - pad * 2.0, (dasar - 208.0) - y_baris),
-        );
-        let queue = self.queue.clone();
-        ui.allocate_new_ui(
-            egui::UiBuilder::new()
-                .max_rect(area)
-                .layout(Layout::top_down(Align::Min)),
-            |ui| {
-                ui.set_clip_rect(area);
-                ui.set_width(area.width());
-                ScrollArea::vertical()
-                    .id_salt("mqueue")
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        for (i, t) in queue.iter().enumerate() {
-                            if self.track_row(ui, t, i, true) {
-                                let q = queue.clone();
-                                self.play_track(t.clone(), Some(q));
-                            }
-                        }
-                        ui.add_space(12.0);
-                    });
-            },
-        );
-    }
 }
 
 // ------------------------------------------------------------------ util
