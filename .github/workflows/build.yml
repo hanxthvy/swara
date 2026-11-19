@@ -46,10 +46,11 @@ jobs:
       - name: Alat sistem (Linux)
         if: runner.os == 'Linux'
         run: |
-          # Mirror Ubuntu kadang belum sinkron; ulangi sekali sebelum menyerah.
-          apt-get update || (sleep 20 && apt-get update) || true
-          apt-get update
-          apt-get install -y --no-install-recommends \
+          # Runner (bukan container) berjalan sebagai user biasa: apt butuh sudo.
+          # Mirror kadang belum sinkron, jadi ulangi sekali sebelum menyerah.
+          sudo apt-get update || (sleep 20 && sudo apt-get update) || true
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
             pkg-config libasound2-dev libxkbcommon-dev libwayland-dev \
             libx11-xcb-dev build-essential curl ca-certificates
 
