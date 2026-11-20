@@ -25,7 +25,7 @@ import android.os.Build;
  * sebagai aksi di {@code kendaliNative}. Aksi itu tidak langsung menyentuh
  * pemutar: UI yang menjalankannya, supaya jalurnya sama dengan tombol di layar.
  */
-public class Pemutar {
+public class Player {
     public static final int AKSI_TOGGLE = 0;
     public static final int AKSI_NEXT = 1;
     public static final int AKSI_PREV = 2;
@@ -343,7 +343,7 @@ public class Pemutar {
     }
 
     private static PendingIntent aksi(int kode) {
-        Intent i = new Intent(app, Latar.class);
+        Intent i = new Intent(app, PlaybackService.class);
         i.setAction("swara.aksi." + kode);
         // PendingIntent menuju layanan: diteruskan ke onStartCommand di bawah.
         return PendingIntent.getService(app, kode, i, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
@@ -432,7 +432,7 @@ public class Pemutar {
         }
     }
 
-    /** Tombol di notifikasi masuk ke sini lewat intent ke {@link Latar}. */
+    /** Tombol di notifikasi masuk ke sini lewat intent ke {@link PlaybackService}. */
     public static void dariIntent(Intent i) {
         if (i == null || i.getAction() == null) {
             return;

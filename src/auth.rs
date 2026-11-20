@@ -233,12 +233,12 @@ pub fn import_any() -> Result<Session> {
     }
 }
 
-/// Android: cookie sudah ditulis `Masuk.java` setelah pengguna login di WebView.
+/// Android: cookie sudah ditulis `Login.java` setelah pengguna login di WebView.
 /// Kalau belum ada, halaman login dibuka sendiri dan fungsi ini gagal dengan
 /// pesan yang jelas, bukan diam-diam tanpa akun.
 #[cfg(target_os = "android")]
 fn import_webview() -> Result<Session> {
-    let header = crate::jembatan_android::baca_cookie().unwrap_or_default();
+    let header = crate::android_bridge::baca_cookie().unwrap_or_default();
     let mut jar = BTreeMap::new();
     for kv in header.split(';') {
         if let Some((k, v)) = kv.trim().split_once('=') {
@@ -248,7 +248,7 @@ fn import_webview() -> Result<Session> {
         }
     }
     if !(jar.contains_key("SAPISID") || jar.contains_key("__Secure-3PAPISID")) {
-        crate::jembatan_android::buka_login();
+        crate::android_bridge::buka_login();
         if jar.is_empty() {
             bail!("halaman login dibuka: masuk lewat Google, lalu kembali ke Swara");
         }

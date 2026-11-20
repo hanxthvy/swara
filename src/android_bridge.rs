@@ -2,7 +2,7 @@
 //!
 //! Di Android tidak ada D-Bus dan tidak ada profil Chromium, jadi dua hal yang
 //! di desktop ditangani MPRIS dan `swara --login` di sini ditangani Activity
-//! Java: `Latar` menjaga proses tetap hidup saat layar mati, `Masuk` membuka
+//! Java: `PlaybackService` menjaga proses tetap hidup saat layar mati, `Login` membuka
 //! WebView untuk login lalu menulis cookie ke berkas.
 //!
 //! Kelas Java dicari lewat `ClassLoader` milik aplikasi, bukan `FindClass`:
@@ -346,19 +346,19 @@ fn panggil(kelas_java: &str, nama: &str) {
 
 /// Nyalakan foreground service supaya pemutaran tidak dibunuh saat layar mati.
 pub fn mulai_layanan_pemutaran() {
-    panggil("com.hanxthvy.swara.Latar", "mulai");
+    panggil("com.hanxthvy.swara.PlaybackService", "mulai");
 }
 
 /// Buka halaman login WebView. Hasilnya dibaca lewat [`baca_cookie`].
 pub fn buka_login() {
-    panggil("com.hanxthvy.swara.Masuk", "buka");
+    panggil("com.hanxthvy.swara.Login", "buka");
 }
 
 /// Cookie yang sudah ditulis halaman login, dalam bentuk header `Cookie`.
 pub fn baca_cookie() -> Option<String> {
     dengan_env(|e| {
         let akt = AKTIVITAS.get()?;
-        let k = kelas(e, "com.hanxthvy.swara.Masuk")?;
+        let k = kelas(e, "com.hanxthvy.swara.Login")?;
         let hasil = e
             .call_static_method(
                 &k,
@@ -390,7 +390,7 @@ pub fn baca_cookie() -> Option<String> {
 /// headset. Hanya menampung; UI yang menjalankannya supaya jalurnya sama
 /// dengan tombol di layar.
 #[no_mangle]
-pub extern "system" fn Java_com_hanxthvy_swara_Pemutar_kendaliNative(
+pub extern "system" fn Java_com_hanxthvy_swara_Player_kendaliNative(
     _env: *mut jni::sys::JNIEnv,
     _kelas: jni::sys::jclass,
     aksi: jni::sys::jint,
@@ -407,7 +407,7 @@ pub extern "system" fn Java_com_hanxthvy_swara_Pemutar_kendaliNative(
 
 /// Geser posisi dari kartu pemutar Android (bilah durasi bisa digeser).
 #[no_mangle]
-pub extern "system" fn Java_com_hanxthvy_swara_Pemutar_kendaliSeekNative(
+pub extern "system" fn Java_com_hanxthvy_swara_Player_kendaliSeekNative(
     _env: *mut jni::sys::JNIEnv,
     _kelas: jni::sys::jclass,
     ms: jni::sys::jlong,
@@ -469,8 +469,8 @@ pub fn perbarui_media(
     }
     dengan_env(|e| {
         let Some(akt) = AKTIVITAS.get() else { return };
-        let Some(k) = kelas(e, "com.hanxthvy.swara.Pemutar") else {
-            eprintln!("[swara] kelas Pemutar tidak ketemu");
+        let Some(k) = kelas(e, "com.hanxthvy.swara.Player") else {
+            eprintln!("[swara] kelas Player tidak ketemu");
             return;
         };
         let (Ok(j), Ok(a), Ok(u)) = (
@@ -496,7 +496,7 @@ pub fn perbarui_media(
             ],
         );
         if let Err(err) = hasil {
-            eprintln!("[swara] Pemutar.perbarui gagal: {err}");
+            eprintln!("[swara] Player.refresh gagal: {err}");
             if e.exception_check().unwrap_or(false) {
                 let _ = e.exception_describe();
                 let _ = e.exception_clear();
@@ -518,7 +518,7 @@ pub fn inset_atas_px() -> f32 {
 fn perkara(nama: &str) -> f32 {
     dengan_env(|e| {
         let Some(akt) = AKTIVITAS.get() else { return 0.0 };
-        let Some(k) = kelas(e, "com.hanxthvy.swara.Layar") else {
+        let Some(k) = kelas(e, "com.hanxthvy.swara.Screen") else {
             return 0.0;
         };
         let hasil = match e.call_static_method(
@@ -544,14 +544,14 @@ fn perkara(nama: &str) -> f32 {
 pub fn hentikan_proses() {
     dengan_env(|e| {
         let Some(akt) = AKTIVITAS.get() else { return };
-        let Some(k) = kelas(e, "com.hanxthvy.swara.Latar") else { return };
+        let Some(k) = kelas(e, "com.hanxthvy.swara.PlaybackService") else { return };
         if let Err(err) = e.call_static_method(
             &k,
             "berhenti",
             "(Landroid/content/Context;)V",
             &[JValue::Object(akt.as_obj())],
         ) {
-            eprintln!("[swara] Latar.berhenti gagal: {err}");
+            eprintln!("[swara] PlaybackService.stop gagal: {err}");
             let _ = e.exception_clear();
         }
     });

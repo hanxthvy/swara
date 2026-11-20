@@ -12,7 +12,7 @@ pub mod ctl;
 #[path = "ctl_stub.rs"]
 pub mod ctl;
 #[cfg(not(target_os = "android"))]
-pub mod cepat;
+pub mod bench;
 pub mod conductor;
 pub mod paths;
 pub mod player;
@@ -36,7 +36,7 @@ pub mod bridge;
 pub mod mpris;
 
 #[cfg(target_os = "android")]
-pub mod jembatan_android;
+pub mod android_bridge;
 
 use api::Api;
 use player::Player;
@@ -72,7 +72,7 @@ pub fn run_gui(launch: Launch) -> anyhow::Result<()> {
     #[cfg(target_os = "android")]
     {
         let (snap2, _) = player_watch.clone();
-        jembatan_android::pasang_kendali(
+        android_bridge::pasang_kendali(
             remote.clone(),
             snap2,
             cond_ctl.clone(),
@@ -169,9 +169,9 @@ pub fn android_main(app: android_activity::AndroidApp) {
         paths::set_android_dirs(dir.clone(), dir.join("cache"));
     }
     eprintln!("[swara] path siap");
-    jembatan_android::simpan_handle(&app);
+    android_bridge::simpan_handle(&app);
     eprintln!("[swara] jni siap");
-    jembatan_android::mulai_layanan_pemutaran();
+    android_bridge::mulai_layanan_pemutaran();
     eprintln!("[swara] layanan diminta");
     let mut launch = Launch::default();
     launch.android_app = Some(app);
@@ -180,5 +180,5 @@ pub fn android_main(app: android_activity::AndroidApp) {
     }
     // Jendela sudah ditutup (activity dihancurkan). Layanan foreground akan
     // menjaga proses ini hidup selamanya kalau tidak dimatikan dari sini.
-    jembatan_android::hentikan_proses();
+    android_bridge::hentikan_proses();
 }

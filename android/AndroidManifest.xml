@@ -41,13 +41,13 @@
 
         <!-- Login lewat WebView, tanpa kata sandi di sisi kita. -->
         <activity
-            android:name="com.hanxthvy.swara.Masuk"
+            android:name="com.hanxthvy.swara.Login"
             android:exported="false"
             android:label="Masuk ke YouTube Music" />
 
         <!-- Menjaga proses tetap hidup saat layar mati. -->
         <service
-            android:name="com.hanxthvy.swara.Latar"
+            android:name="com.hanxthvy.swara.PlaybackService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback"
             android:stopWithTask="false" />

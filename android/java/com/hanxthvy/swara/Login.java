@@ -18,11 +18,11 @@ import java.io.FileOutputStream;
  * music.youtube.com ditulis ke berkas privat aplikasi; Rust membacanya lalu
  * menyusun sesi sendiri. Tidak ada kata sandi yang lewat tangan kita.
  */
-public class Masuk extends Activity {
+public class Login extends Activity {
     private WebView web;
 
     public static void buka(Context ctx) {
-        Intent i = new Intent(ctx, Masuk.class);
+        Intent i = new Intent(ctx, Login.class);
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         ctx.startActivity(i);
     }

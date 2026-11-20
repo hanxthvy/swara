@@ -16,12 +16,12 @@ import android.os.IBinder;
  * Foreground service: tanpa ini Android membunuh proses Swara beberapa detik
  * setelah layar mati, dan musik berhenti sendiri.
  */
-public class Latar extends Service {
+public class PlaybackService extends Service {
     private static final String KANAL = "swara_putar";
     private static final int ID = 1001;
 
     public static void mulai(Context ctx) {
-        Intent i = new Intent(ctx, Latar.class);
+        Intent i = new Intent(ctx, PlaybackService.class);
         if (Build.VERSION.SDK_INT >= 26) {
             ctx.startForegroundService(i);
         } else {
@@ -135,7 +135,7 @@ public class Latar extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         // Tombol notifikasi dikirim sebagai intent ke layanan ini.
-        Pemutar.dariIntent(intent);
+        Player.dariIntent(intent);
         pantauActivity();
         pasangPenjaga();
         if (Build.VERSION.SDK_INT >= 26) {
@@ -184,7 +184,7 @@ public class Latar extends Service {
      */
     public static void berhenti(Context ctx) {
         try {
-            ctx.stopService(new Intent(ctx, Latar.class));
+            ctx.stopService(new Intent(ctx, PlaybackService.class));
         } catch (Throwable t) {
             // abaikan
         }

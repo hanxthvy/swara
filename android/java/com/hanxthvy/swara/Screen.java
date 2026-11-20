@@ -10,7 +10,7 @@ import android.view.WindowInsets;
  * memakainya sebagai jarak atas supaya judul dan tombol Swara tidak tertutup
  * jam, baterai, dan notifikasi.
  */
-public class Layar {
+public class Screen {
     /**
      * Tinggi bilah status dalam piksel fisik.
      *

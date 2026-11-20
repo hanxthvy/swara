@@ -3911,7 +3911,7 @@ impl eframe::App for App {
         if self.inset_coba < 40 {
             self.inset_coba += 1;
             let ppp = ctx.pixels_per_point().max(0.5);
-            let px = crate::jembatan_android::inset_atas_px();
+            let px = crate::android_bridge::inset_atas_px();
             if px > 0.0 {
                 let titik = px / ppp;
                 if self.inset_atas == 0.0 || titik < self.inset_atas {
@@ -3919,7 +3919,7 @@ impl eframe::App for App {
                     eprintln!("[swara] inset atas {:.1} titik", self.inset_atas);
                 }
             }
-            let pb = crate::jembatan_android::inset_bawah_px();
+            let pb = crate::android_bridge::inset_bawah_px();
             if pb > 0.0 {
                 let titik = pb / ppp;
                 if self.inset_bawah == 0.0 || titik < self.inset_bawah {
@@ -3932,7 +3932,7 @@ impl eframe::App for App {
         // Tombol dari notifikasi, layar kunci, dan headset Android.
         #[cfg(target_os = "android")]
         {
-            use crate::jembatan_android as ja;
+            use crate::android_bridge as ja;
             ja::detak();
             for aksi in ja::ambil_aksi() {
                 match aksi {

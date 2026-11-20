@@ -85,7 +85,7 @@ fn main() -> anyhow::Result<()> {
     if let Some(i) = args.iter().position(|a| a == "--cepat") {
         let id = args.get(i + 1).cloned().unwrap_or_default();
         #[cfg(not(target_os = "android"))]
-        swara::cepat::uji(&id);
+        swara::bench::uji(&id);
         return Ok(());
     }
     if let Some(i) = args.iter().position(|a| a == "--lib") {
