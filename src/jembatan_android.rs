@@ -81,6 +81,7 @@ pub fn pasang_kendali(
     // lama dan tidak ada tombol yang bisa dipakai melanjutkan.
     std::thread::spawn(|| {
         let mut seq_akhir = 0u64;
+        let mut dur_terakhir = 0.0f64;
         loop {
             std::thread::sleep(std::time::Duration::from_millis(700));
             let seq = match COND_STATE.get().and_then(|m| m.lock().ok()) {
@@ -92,9 +93,19 @@ pub fn pasang_kendali(
             };
             if seq != seq_akhir {
                 seq_akhir = seq;
+                dur_terakhir = 0.0;
                 segarkan_kartu(Some(true));
+            } else if durasi_siap() && dur_terakhir <= 0.0 {
+                // Durasi lagu baru baru saja terbaca: kirim ulang supaya bilah
+                // durasi di kartu langsung muncul tanpa perlu pause.
+                dur_terakhir = snap_dur();
+                segarkan_kartu(None);
             } else if main_sekarang() != last_main() {
                 // main/pause berubah tanpa lewat UI (mis. lagu habis).
+                segarkan_kartu(None);
+            } else if main_sekarang() {
+                // Kirim posisi terbaru: tanpa ini bilah durasi di kartu diam di
+                // angka terakhir yang dikirim UI sebelum jendela tidur.
                 segarkan_kartu(None);
             }
         }
@@ -141,10 +152,11 @@ fn jalankan_langsung(aksi: i32) -> bool {
                         break;
                     }
                 }
-                // Kartu baru harus membawa durasi; tanpa itu Android menggambar
-                // state NONE dan bilah durasi di notifikasi hilang.
-                for _ in 0..40 {
-                    if durasi_siap() {
+                // Kartu baru harus membawa durasi lagu BARU. Posisi yang masih
+                // besar berarti snap belum berpindah, dan durasi lama akan
+                // dikirim sebagai durasi lagu baru (bilah durasi jadi kacau).
+                for _ in 0..48 {
+                    if posisi_baru_siap() {
                         break;
                     }
                     std::thread::sleep(std::time::Duration::from_millis(250));
@@ -187,7 +199,26 @@ fn jalankan_langsung(aksi: i32) -> bool {
     true
 }
 
-/// Durasi lagu aktif sudah diketahui (dipakai untuk bilah durasi kartu).
+/// Pemutar sudah pindah ke lagu baru dan durasinya diketahui: posisi kecil,
+/// durasi masuk akal. Tanpa syarat posisi, durasi lagu lama ikut terkirim.
+fn posisi_baru_siap() -> bool {
+    SNAP.get()
+        .and_then(|s| {
+            s.lock()
+                .ok()
+                .map(|g| g.dur > 1.0 && g.pos < 5.0)
+        })
+        .unwrap_or(false)
+}
+
+/// Durasi yang sedang dipegang pemutar.
+fn snap_dur() -> f64 {
+    SNAP.get()
+        .and_then(|s| s.lock().ok().map(|g| g.dur))
+        .unwrap_or(0.0)
+}
+
+/// Durasi lagu aktif sudah diketahui.
 fn durasi_siap() -> bool {
     SNAP.get()
         .and_then(|s| s.lock().ok().map(|g| g.dur > 1.0))
@@ -372,6 +403,24 @@ pub extern "system" fn Java_com_hanxthvy_swara_Pemutar_kendaliNative(
     if let Ok(mut g) = AKSI.lock() {
         g.push(aksi);
     }
+}
+
+/// Geser posisi dari kartu pemutar Android (bilah durasi bisa digeser).
+#[no_mangle]
+pub extern "system" fn Java_com_hanxthvy_swara_Pemutar_kendaliSeekNative(
+    _env: *mut jni::sys::JNIEnv,
+    _kelas: jni::sys::jclass,
+    ms: jni::sys::jlong,
+) {
+    let Some(r) = REMOTE.get() else { return };
+    let detik = (ms.max(0) as f64) / 1000.0;
+    r.seek(detik);
+    eprintln!("[swara] seek dari kartu {detik:.1}s");
+    // Kartu disegarkan setelah posisi berpindah supaya bilahnya ikut.
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        segarkan_kartu(None);
+    });
 }
 
 /// Ambil aksi yang menumpuk sejak frame terakhir.

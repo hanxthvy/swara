@@ -113,10 +113,14 @@ public class Pemutar {
         sukaSekarang = suka;
 
         // Sampul diunduh sendiri: MediaSession hanya menerima Bitmap, bukan URL.
+        // Saat lagu berganti, sampul lama dilepas lebih dulu — kalau tidak,
+        // gambar lagu sebelumnya menempel sampai notifikasi disegarkan lain.
         String url = seniUrl == null ? "" : seniUrl;
-        if (!url.equals(urlSeni)) {
-            urlSeni = url;
+        if (bergantiLagu) {
             seni = null;
+        }
+        if (!url.equals(urlSeni) || bergantiLagu) {
+            urlSeni = url;
             muatSeni(url);
         }
 
@@ -125,23 +129,21 @@ public class Pemutar {
         }
         // Tanpa durasi, Android menggambar state NONE dan bilah durasi di kartu
         // hilang. Pakai durasi terakhir selama lagu baru belum melaporkannya.
+        boolean dapatDurasi = durMs > 0 && durMs != durTerakhir;
         long dur = durMs > 0 ? durMs : durTerakhir;
         perbaruiMetadata(dur);
 
-        int st;
-        if (main) {
-            st = PlaybackState.STATE_PLAYING;
-        } else if (dur > 0) {
-            st = PlaybackState.STATE_PAUSED;
-        } else {
-            st = PlaybackState.STATE_NONE;
-        }
+        // STATE_NONE membuat kartu kehilangan bilah durasi, jadi selama masih
+        // ada lagu keadaannya PLAYING atau PAUSED saja.
+        int st = main ? PlaybackState.STATE_PLAYING : PlaybackState.STATE_PAUSED;
         PlaybackState.Builder pb = new PlaybackState.Builder()
                 .setActions(PlaybackState.ACTION_PLAY
                         | PlaybackState.ACTION_PAUSE
                         | PlaybackState.ACTION_PLAY_PAUSE
                         | PlaybackState.ACTION_SKIP_TO_NEXT
-                        | PlaybackState.ACTION_SKIP_TO_PREVIOUS)
+                        | PlaybackState.ACTION_SKIP_TO_PREVIOUS
+                        // Tanpa ini bilah durasi di kartu tidak bisa digeser.
+                        | PlaybackState.ACTION_SEEK_TO)
                 .setState(st, Math.max(0, posMs), main ? 1f : 0f);
         PlaybackState.CustomAction sukaAksi = aksiSuka(c);
         if (sukaAksi != null) {
@@ -158,7 +160,7 @@ public class Pemutar {
 
         // Notifikasi hanya disegarkan saat lagu/keadaan berubah; posisi cukup
         // lewat PlaybackState supaya bilah system UI tetap halus.
-        if (bergantiLagu || bergantiMain || bergantiSuka) {
+        if (bergantiLagu || bergantiMain || bergantiSuka || dapatDurasi) {
             tampilkan();
         }
     }
@@ -288,6 +290,11 @@ public class Pemutar {
                 }
 
                 @Override
+                public void onSeekTo(long pos) {
+                    kendaliSeek(pos);
+                }
+
+                @Override
                 public void onCustomAction(String action, android.os.Bundle args) {
                     if (action != null && action.startsWith("swara.suka")) {
                         kirim(AKSI_SUKA);
@@ -300,6 +307,17 @@ public class Pemutar {
         }
         mintaIzinNotifikasi(c);
     }
+
+    /** Geser posisi dari kartu sistem / layar kunci. */
+    private static void kendaliSeek(long ms) {
+        try {
+            kendaliSeekNative(ms);
+        } catch (Throwable t) {
+            android.util.Log.w("Swara", "seek native gagal: " + t);
+        }
+    }
+
+    private static native void kendaliSeekNative(long ms);
 
     private static void mintaIzinNotifikasi(Context c) {
         if (Build.VERSION.SDK_INT < 33 || mintaNotif) {
