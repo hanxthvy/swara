@@ -36,5 +36,24 @@ if [ -d "$DEBUG" ]; then
     done
 fi
 
+# 3. target silang Android dibangun sebagai root di luar repo. Isi terbesarnya
+#    ada di <triple>/release/build (keluaran build-script), bukan di deps.
+AKAR="/root/.cache/swara-android-target"
+if [ "$(id -u)" = "0" ] && [ -d "$AKAR" ]; then
+    BAKAR=${2:-3000}
+    for d in "$AKAR"/*/release/incremental "$AKAR"/*/debug/incremental; do
+        [ -d "$d" ] && rm -rf "$d"
+    done
+    while [ "$(mb "$AKAR")" -gt "$BAKAR" ]; do
+        hapus=$(find "$AKAR" -mindepth 4 -maxdepth 4 -type d -path '*/release/build/*' -printf '%T@ %p\n' 2>/dev/null \
+            | sort -n | head -100 | cut -d' ' -f2-)
+        [ -n "$hapus" ] || hapus=$(find "$AKAR" -mindepth 4 -maxdepth 4 -type d -path '*/release/deps/*' -printf '%T@ %p\n' 2>/dev/null \
+            | sort -n | head -100 | cut -d' ' -f2-)
+        [ -n "$hapus" ] || break
+        echo "$hapus" | while IFS= read -r f; do rm -rf "$f"; done
+    done
+    echo "android: $(mb "$AKAR") MB"
+fi
+
 sesudah=$(mb "$TARGET")
 echo "cache: ${sebelum} MB -> ${sesudah} MB (batas debug ${BATAS} MB)"
