@@ -94,6 +94,18 @@ impl Mpris {
     }
 
     pub fn spawn() -> Option<Self> {
+        // Dijalankan dari peluncur yang tidak mewarisi sesi D-Bus, env ini
+        // kosong dan MPRIS tidak pernah terdaftar — islet lalu tidak melihat
+        // pemutar sama sekali. Turunkan dari XDG_RUNTIME_DIR sebelum menyambung.
+        if std::env::var_os("DBUS_SESSION_BUS_ADDRESS").is_none() {
+            if let Some(rt) = std::env::var_os("XDG_RUNTIME_DIR") {
+                let sock = std::path::Path::new(&rt).join("bus");
+                if sock.exists() {
+                    let alamat = format!("unix:path={}", sock.display());
+                    std::env::set_var("DBUS_SESSION_BUS_ADDRESS", alamat);
+                }
+            }
+        }
         let (cmd_tx, cmd_rx) = channel::<Cmd>();
         let (ev_tx, ev_rx) = channel::<Event>();
         let ok = std::thread::Builder::new()
