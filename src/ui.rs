@@ -2504,17 +2504,79 @@ impl App {
 
     // ---- beranda
 
+    /// Kerangka muat: blok-blok seukuran isi asli, berdenyut pelan.
+    fn skeleton(&self, ui: &mut Ui, mobile: bool) {
+        let s = self.scheme;
+        let t = ui.input(|i| i.time) as f32;
+        let denyut = 0.55 + 0.25 * (t * 1.8).sin().abs();
+        let blok = s.surface_low.gamma_multiply(denyut);
+        let garis = s.surface_high.gamma_multiply(denyut);
+        let lebar = ui.available_width();
+        let (area, _) = ui.allocate_exact_size(
+            vec2(lebar, if mobile { 700.0 } else { 560.0 }),
+            Sense::hover(),
+        );
+        let o = area.min;
+        let p = ui.painter().clone();
+        let r = |x: f32, y: f32, w: f32, h: f32, c: Color32, rad: f32| {
+            p.rect_filled(
+                Rect::from_min_size(pos2(o.x + x, o.y + y), vec2(w, h)),
+                Rounding::same(rad),
+                c,
+            );
+        };
+        if mobile {
+            // sapaan, chip, hero, judul, tiga baris, judul, tiga ubin
+            r(0.0, 4.0, 168.0, 22.0, garis, 6.0);
+            let mut cx = 0.0;
+            for w in [104.0, 76.0, 92.0] {
+                r(cx, 36.0, w, 30.0, garis, 15.0);
+                cx += w + 8.0;
+            }
+            r(0.0, 78.0, lebar, 132.0, blok, 8.0);
+            r(0.0, 230.0, 132.0, 18.0, garis, 6.0);
+            for i in 0..3 {
+                let y = 260.0 + i as f32 * 54.0;
+                r(0.0, y + 5.0, 44.0, 44.0, garis, 6.0);
+                r(56.0, y + 10.0, lebar - 120.0, 13.0, garis, 4.0);
+                r(56.0, y + 30.0, (lebar - 120.0) * 0.6, 11.0, garis, 4.0);
+            }
+            r(0.0, 448.0, 148.0, 18.0, garis, 6.0);
+            let gap = 8.0;
+            let cw = ((lebar - gap * 2.0) / 3.0).floor();
+            for i in 0..3 {
+                let x = i as f32 * (cw + gap);
+                r(x, 480.0, cw, cw, blok, 6.0);
+                r(x, 480.0 + cw + 8.0, cw * 0.8, 11.0, garis, 4.0);
+            }
+        } else {
+            // chip, hero, judul seksi, enam kartu
+            let mut cx = 0.0;
+            for w in [86.0, 74.0, 82.0, 70.0] {
+                r(cx, 8.0, w, 32.0, garis, 16.0);
+                cx += w + 8.0;
+            }
+            r(0.0, 56.0, lebar, 200.0, blok, 8.0);
+            r(0.0, 288.0, 176.0, 18.0, garis, 6.0);
+            let gap = 16.0;
+            let cols = 6.0;
+            let cw = ((lebar - gap * (cols - 1.0)) / cols).floor();
+            for i in 0..6 {
+                let x = i as f32 * (cw + gap);
+                r(x, 322.0, cw, cw, blok, 6.0);
+                r(x, 322.0 + cw + 12.0, cw * 0.8, 13.0, garis, 4.0);
+                r(x, 322.0 + cw + 32.0, cw * 0.55, 11.0, garis, 4.0);
+            }
+        }
+    }
+
     fn tab_home(&mut self, ui: &mut Ui, compact: bool) {
         let s = self.scheme;
         if self.home.is_empty() && !self.home_err.is_empty() {
             ui.label(ts::body(&self.home_err, s.on_surface_variant));
         }
         if self.home.is_empty() {
-            ui.horizontal(|ui| {
-                ui.spinner();
-                ui.add_space(6.0);
-                ui.label(ts::body("Memuat beranda…", s.on_surface_variant));
-            });
+            self.skeleton(ui, false);
             return;
         }
         let rows = self.home.clone();
@@ -3054,11 +3116,7 @@ impl App {
                 ui.add_space(14.0);
 
                 if rows.is_empty() {
-                    ui.horizontal(|ui| {
-                        ui.spinner();
-                        ui.add_space(6.0);
-                        ui.label(ts::body("Memuat beranda…", s.on_surface_variant));
-                    });
+                    self.skeleton(ui, true);
                     return;
                 }
 

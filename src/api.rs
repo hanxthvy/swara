@@ -776,6 +776,23 @@ impl Api {
                         dur.clear();
                     }
                 }
+                // Baris daftar membawa sampulnya sendiri di `thumbnail`, bukan di
+                // kartu dua baris. Dulu di sini cuma `card.thumb`, dan untuk halaman
+                // album/singel itu kosong sehingga semua baris tampil tanpa gambar.
+                let mut sampul = String::new();
+                for jalur in [
+                    "/thumbnail/musicThumbnailRenderer/thumbnail/thumbnails",
+                    "/thumbnail/croppedSquareThumbnailRenderer/thumbnail/thumbnails",
+                ] {
+                    let v = node.pointer(jalur).cloned().unwrap_or(Value::Null);
+                    sampul = best_thumb(&v);
+                    if !sampul.is_empty() {
+                        break;
+                    }
+                }
+                if sampul.is_empty() {
+                    sampul = card.thumb;
+                }
                 tracks.push(Track {
                     id: card.id,
                     title: card.title,
@@ -783,7 +800,7 @@ impl Api {
                     album: String::new(),
                     secs: parse_dur(&dur),
                     dur,
-                    thumb: card.thumb,
+                    thumb: sampul,
                 });
             }
         }
