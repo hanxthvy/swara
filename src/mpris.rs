@@ -94,16 +94,43 @@ impl Mpris {
     }
 
     pub fn spawn() -> Option<Self> {
-        // Dijalankan dari peluncur yang tidak mewarisi sesi D-Bus, env ini
-        // kosong dan MPRIS tidak pernah terdaftar — islet lalu tidak melihat
-        // pemutar sama sekali. Turunkan dari XDG_RUNTIME_DIR sebelum menyambung.
+        // Peluncur yang tidak mewarisi sesi D-Bus (agen, dock, service) membuat
+        // MPRIS tidak pernah terdaftar. Cari alamatnya sendiri: bus sesi sway
+        // biasa hidup di /tmp/dbus-XXXX dari dbus-run-session, bukan di
+        // /run/user/<uid>/bus.
         if std::env::var_os("DBUS_SESSION_BUS_ADDRESS").is_none() {
+            let mut calon: Vec<std::path::PathBuf> = Vec::new();
             if let Some(rt) = std::env::var_os("XDG_RUNTIME_DIR") {
-                let sock = std::path::Path::new(&rt).join("bus");
-                if sock.exists() {
-                    let alamat = format!("unix:path={}", sock.display());
-                    std::env::set_var("DBUS_SESSION_BUS_ADDRESS", alamat);
+                calon.push(std::path::Path::new(&rt).join("bus"));
+            }
+            if let Ok(rd) = std::fs::read_dir("/tmp") {
+                for e in rd.flatten() {
+                    let n = e.file_name().to_string_lossy().to_string();
+                    if !n.starts_with("dbus-") {
+                        continue;
+                    }
+                    let p = e.path();
+                    let ok = std::fs::metadata(&p)
+                        .map(|m| {
+                            use std::os::unix::fs::FileTypeExt;
+                            m.file_type().is_socket()
+                        })
+                        .unwrap_or(false);
+                    if ok {
+                        calon.push(p);
+                    }
                 }
+            }
+            calon.sort_by_key(|p| {
+                std::fs::metadata(p)
+                    .and_then(|m| m.modified())
+                    .ok()
+            });
+            if let Some(p) = calon.into_iter().rev().find(|p| p.exists()) {
+                std::env::set_var(
+                    "DBUS_SESSION_BUS_ADDRESS",
+                    format!("unix:path={}", p.display()),
+                );
             }
         }
         let (cmd_tx, cmd_rx) = channel::<Cmd>();

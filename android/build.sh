@@ -105,3 +105,6 @@ fi
 ls -lh "$OUT"/*.apk
 # base.apk cuma perantara, jangan ikut terunggah sebagai artefak rilis.
 rm -f "$OUT/base.apk"
+
+echo "== bersihkan cache"
+sh scripts/clean-cache.sh || true

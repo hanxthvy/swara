@@ -84,3 +84,10 @@ strip = true
 
 [profile.dev]
 opt-level = 1
+# Debug info penuh membuat biner dev ratusan MB dan folder target belasan GB.
+# Baris tabel saja cukup untuk backtrace yang menyebut nomor baris.
+debug = 1
+strip = "debuginfo"
+
+[profile.dev.package."*"]
+debug = false
