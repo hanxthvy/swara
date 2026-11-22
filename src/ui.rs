@@ -405,6 +405,11 @@ pub struct App {
     lib: Vec<Card>,
     logged: Option<String>,
 
+    /// Lagu yang status sukanya sedang/ sudah ditanyakan ke akun, supaya ikon
+    /// hati di kartu sistem tidak menampilkan "belum disukai" untuk lagu yang
+    /// sudah pernah disukai sebelum aplikasi dibuka.
+    rating_diminta: Option<String>,
+
     query: String,
     results: Vec<Track>,
     suggest: Vec<String>,
@@ -504,6 +509,7 @@ impl App {
             koleksi: None,
             lib: Vec::new(),
             logged: None,
+            rating_diminta: None,
             query: String::new(),
             results: Vec::new(),
             suggest: Vec::new(),
@@ -646,6 +652,25 @@ impl App {
                 }
                 self.lib = cards;
             }
+            Out::Rating(id, suka) => {
+                // Pengguna mungkin sudah menekan tombol sebelum jawaban tiba:
+                // jangan timpa pilihan yang lebih baru.
+                if self.rating.contains_key(&id) {
+                    return;
+                }
+                if self.current.as_ref().map(|c| c.id == id).unwrap_or(false) {
+                    if suka {
+                        self.rating.insert(id.clone(), 1);
+                    }
+                    {
+                        let mut g = self.suka.lock().unwrap();
+                        g.id = id.clone();
+                        g.suka = suka;
+                        drop(g);
+                        crate::ctl::tulis(&self.suka);
+                    }
+                }
+            }
             Out::Rated(id, like) => {
                 let _ = id;
                 self.toast(if like {
@@ -705,6 +730,11 @@ impl App {
                 self.player.play(audio, 0.0, dur);
                 self.progress.dur = dur;
                 self.progress.ended = false;
+                // Konduktor ikut menyimpan metadata lengkap lagu ini: kartu
+                // pemutar sistem membacanya dari sana, bukan dari UI.
+                if let Some(c) = self.current.clone() {
+                    self.cond.lock().unwrap().set_track(c);
+                }
                 if self.seed.is_none() {
                     if let Some(bytes) = art {
                         if let Ok(img) = image::load_from_memory(&bytes) {
@@ -3929,6 +3959,15 @@ impl eframe::App for App {
             }
         }
         self.sinkron_suka();
+        // Status suka lagu yang sedang diputar: tanya sekali per lagu. Tanpa ini
+        // kartu sistem mengira lagu yang sudah pernah disukai masih kosong, jadi
+        // ikonnya garis dan menekannya tidak mengubah apa pun.
+        if let Some(cur) = self.current.clone() {
+            if self.logged.is_some() && self.rating_diminta.as_deref() != Some(cur.id.as_str()) {
+                self.rating_diminta = Some(cur.id.clone());
+                self.worker.send(crate::worker::Job::Rating(cur.id));
+            }
+        }
         // Tombol dari notifikasi, layar kunci, dan headset Android.
         #[cfg(target_os = "android")]
         {

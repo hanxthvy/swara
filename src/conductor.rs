@@ -34,6 +34,19 @@ impl Cond {
     pub fn set_queue(&mut self, queue: &[Track], id: &str) {
         self.queue = queue.to_vec();
         self.idx = queue.iter().position(|t| t.id == id).unwrap_or(0);
+        // Konduktor juga harus tahu lagu mana yang dipegang UI. Tanpa ini
+        // `track` tetap lagu terakhir yang dimulai konduktor sendiri, dan kartu
+        // pemutar Android (yang membaca `Cond.track`) terus menampilkan lagu
+        // lama walau pengguna memilih lagu lain dari aplikasi.
+        if let Some(t) = self.queue.get(self.idx) {
+            self.track = Some(t.clone());
+        }
+    }
+
+    /// Metadata lengkap untuk lagu yang sedang diputar (judul, artis, sampul)
+    /// setelah UI selesai memuatnya.
+    pub fn set_track(&mut self, t: Track) {
+        self.track = Some(t);
     }
 
     fn after_current(&self) -> Option<Track> {

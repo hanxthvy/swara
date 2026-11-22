@@ -20,6 +20,8 @@ pub enum Job {
     Logout,
     Library,
     Rate(String, bool),
+    /// Tanya status suka lagu ini ke akun (LIKE/INDIFFERENT/DISLIKE).
+    Rating(String),
 }
 
 pub enum Out {
@@ -36,6 +38,8 @@ pub enum Out {
     Logged(Option<String>),
     Library(Vec<Card>),
     Rated(String, bool),
+    /// Jawaban status suka dari akun untuk satu lagu.
+    Rating(String, bool),
     Failed(String),
 }
 
@@ -159,6 +163,11 @@ fn handle(api: &Api, job: Job) -> Result<Out> {
         Job::Rate(id, like) => {
             api.rate(&id, like)?;
             Out::Rated(id, like)
+        }
+        Job::Rating(id) => {
+            let suka = api.like_status(&id).unwrap_or(false);
+            eprintln!("[swara] status suka {id}: {}", if suka { "LIKE" } else { "bukan" });
+            Out::Rating(id, suka)
         }
         Job::Load(t) => {
             // Sudah disiapkan di latar? langsung main.

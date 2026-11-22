@@ -464,6 +464,55 @@ impl Api {
         })
     }
 
+    /// Status suka satu lagu menurut akun: `LIKE` dihitung suka, selain itu
+    /// tidak. Memakai `next` bergaya panel tonton (tanpa `params` radio) karena
+    /// hanya bentuk itu yang membawa `likeStatus` per baris untuk akun login.
+    pub fn like_status(&self, video_id: &str) -> Result<bool> {
+        if !self.logged_in() {
+            return Ok(false);
+        }
+        let c = self.creds()?;
+        let resp = self.itube(
+            "next",
+            json!({
+                "context": Self::ctx_remix(&c),
+                "videoId": video_id,
+                "isAudioOnly": true,
+                "playlistId": format!("RDAMVM{video_id}"),
+                "enablePersistentPlaylistPanel": true,
+                "tunerSettingValue": "AUTOMIX_SETTING_NORMAL",
+                "watchEndpointMusicSupportedConfigs": {
+                    "watchEndpointMusicConfig": {
+                        "hasPersistentPlaylistPanel": true,
+                        "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+                    }
+                }
+            }),
+        )?;
+        for it in items(&resp, "playlistPanelVideoRenderer") {
+            if it.get("videoId").and_then(|v| v.as_str()) != Some(video_id) {
+                continue;
+            }
+            if let Some(s) = it.get("likeStatus").and_then(|v| v.as_str()) {
+                return Ok(s.eq_ignore_ascii_case("LIKE"));
+            }
+        }
+        // Panel radio tidak membawa `likeStatus` per baris; tombolnya ada di
+        // playerOverlays (likeButtonRenderer) dan itu yang dipakai web YT Music.
+        if let Some(acts) = resp
+            .pointer("/playerOverlays/playerOverlayRenderer/actions")
+            .and_then(|v| v.as_array())
+        {
+            for a in acts {
+                let Some(lb) = a.get("likeButtonRenderer") else { continue };
+                if let Some(s) = lb.get("likeStatus").and_then(|v| v.as_str()) {
+                    return Ok(s.eq_ignore_ascii_case("LIKE"));
+                }
+            }
+        }
+        Ok(false)
+    }
+
     pub fn radio(&self, video_id: &str, limit: usize) -> Result<Vec<Track>> {
         let c = self.creds()?;
         let resp = self.itube(
