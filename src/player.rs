@@ -394,6 +394,12 @@ fn audio_thread(
     // Tanpa penanda ini `ended` dilaporkan tiap poll, dan pemanggil melompat
     // lagu berulang-ulang selama jeda muat (gejala: skip beruntun).
     let mut reported_end = false;
+    // Selama sink dibangun ulang setelah seek, `cur` kosong dan status akan
+    // melaporkan pos 0 + jeda — kartu sistem lalu melompat balik sekejap
+    // sebelum kembali ke posisi baru. Simpan target di sini dan laporkan itu.
+    let mut pos_seek: Option<f64> = None;
+    // Keadaan main terakhir yang sudah dilaporkan, dipakai saat melaporkan target seek.
+    let mut main_terakhir = false;
 
     loop {
         match rx.recv_timeout(Duration::from_millis(20)) {
@@ -406,6 +412,8 @@ fn audio_thread(
                 last_dur = dur;
                 last = Some(buf.clone());
                 base_pos = start.max(0.0);
+                // Lagu baru: target seek lagu sebelumnya tidak berlaku lagi.
+                pos_seek = None;
                 match build(
                     &buf,
                     start,
@@ -445,6 +453,7 @@ fn audio_thread(
                     c.sink.stop();
                 }
                 cur = None;
+                pos_seek = None;
             }
             Ok(Cmd::Seek(pos)) => {
                 // Seek di tingkat sampel: buang audio lama, buka ulang, lalu
@@ -455,6 +464,7 @@ fn audio_thread(
                 }
                 reported_end = false;
                 base_pos = pos.max(0.0);
+                pos_seek = Some(base_pos);
                 if let Some(buf) = last.clone() {
                     match build(
                         &buf,
@@ -501,6 +511,7 @@ fn audio_thread(
                     reported_end = true;
                     c.playing = false;
                 }
+                pos_seek = None;
                 Progress {
                     playing: c.playing && !empty,
                     pos: if c.dur > 0.0 { pos.min(c.dur) } else { pos },
@@ -510,15 +521,29 @@ fn audio_thread(
                     error: error.clone(),
                 }
             }
-            None => Progress {
-                playing: false,
-                pos: 0.0,
-                dur: 0.0,
-                volume,
-                ended: false,
-                error: error.clone(),
+            None => match pos_seek {
+                // Sink sedang dibangun ulang karena seek: laporkan targetnya,
+                // jangan 0 + jeda. Kalau tidak, bilah durasi di kartu sistem
+                // melompat ke awal lalu balik lagi ke posisi baru.
+                Some(target) => Progress {
+                    playing: main_terakhir,
+                    pos: target,
+                    dur: last_dur,
+                    volume,
+                    ended: false,
+                    error: error.clone(),
+                },
+                None => Progress {
+                    playing: false,
+                    pos: 0.0,
+                    dur: 0.0,
+                    volume,
+                    ended: false,
+                    error: error.clone(),
+                },
             },
         };
+        main_terakhir = status.playing;
         if status.ended {
             ends.fetch_add(1, Ordering::SeqCst);
         }

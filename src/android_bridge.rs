@@ -53,6 +53,26 @@ static INFO: Mutex<(String, String, String, bool)> =
 static DETAK: AtomicU64 = AtomicU64::new(0);
 static AWAL: OnceLock<Instant> = OnceLock::new();
 
+/// Target seek yang sedang dalam perjalanan: (posisi detik, waktu dikirim).
+/// Kartu Android sudah menggeser bilahnya sendiri saat jari dilepas, lalu pos
+/// lama yang masih di antrean (dari UI yang belum sempat poll) sempat dikirim
+/// balik. Selama seek belum mendarat, laporkan target, bukan pos lama.
+static SEEK: Mutex<Option<(f64, Instant)>> = Mutex::new(None);
+
+/// Pos yang boleh dilaporkan ke kartu: target seek kalau masih baru dan pos
+/// yang diminta jelas berbeda (selisih lebih dari 0,8 detik).
+fn pos_terkini(pos: f64) -> f64 {
+    if let Ok(g) = SEEK.lock() {
+        if let Some((target, kirim)) = *g {
+            if kirim.elapsed() < std::time::Duration::from_millis(2500) && (pos - target).abs() > 0.8
+            {
+                return target;
+            }
+        }
+    }
+    pos
+}
+
 fn sekarang_us() -> u64 {
     AWAL.get_or_init(Instant::now).elapsed().as_micros() as u64
 }
@@ -414,6 +434,9 @@ pub extern "system" fn Java_com_hanxthvy_swara_Player_kendaliSeekNative(
 ) {
     let Some(r) = REMOTE.get() else { return };
     let detik = (ms.max(0) as f64) / 1000.0;
+    if let Ok(mut g) = SEEK.lock() {
+        *g = Some((detik, Instant::now()));
+    }
     r.seek(detik);
     eprintln!("[swara] seek dari kartu {detik:.1}s");
     // Kartu disegarkan setelah posisi berpindah supaya bilahnya ikut.
@@ -446,6 +469,7 @@ pub fn perbarui_media(
             *i = (judul.to_string(), artis.to_string(), sampul.to_string(), suka);
         }
     }
+    let pos = pos_terkini(pos);
     let perlu = {
         let Ok(mut g) = TERAKHIR.lock() else { return };
         let berubah = g.0 != judul || g.1 != artis || g.2 != sampul || g.3 != suka || g.4 != main;

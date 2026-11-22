@@ -124,12 +124,13 @@ public class Player {
             muatSeni(url);
         }
 
-        if (durMs > 0) {
+        // Tanpa METADATA_KEY_DURATION, Android menghapus bilah durasi dari kartu
+        // — dan pengunduh sampul memanggil perbaruiMetadata(0) di tengah lagu,
+        // jadi durasi terakhir harus diingat dan dipakai lagi, bukan dibuang.
+        boolean dapatDurasi = durMs > 0 && durMs != durTerakhir;
+        if (dapatDurasi) {
             durTerakhir = durMs;
         }
-        // Tanpa durasi, Android menggambar state NONE dan bilah durasi di kartu
-        // hilang. Pakai durasi terakhir selama lagu baru belum melaporkannya.
-        boolean dapatDurasi = durMs > 0 && durMs != durTerakhir;
         long dur = durMs > 0 ? durMs : durTerakhir;
         perbaruiMetadata(dur);
 
@@ -170,11 +171,12 @@ public class Player {
         if (sesi == null) {
             return;
         }
+        long pakai = durMs > 0 ? durMs : durTerakhir;
         MediaMetadata.Builder m = new MediaMetadata.Builder()
                 .putString(MediaMetadata.METADATA_KEY_TITLE, judul)
                 .putString(MediaMetadata.METADATA_KEY_ARTIST, artis);
-        if (durMs > 0) {
-            m.putLong(MediaMetadata.METADATA_KEY_DURATION, durMs);
+        if (pakai > 0) {
+            m.putLong(MediaMetadata.METADATA_KEY_DURATION, pakai);
         }
         if (seni != null) {
             m.putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, seni);
@@ -296,7 +298,10 @@ public class Player {
 
                 @Override
                 public void onCustomAction(String action, android.os.Bundle args) {
-                    if (action != null && action.startsWith("swara.suka")) {
+                    // Ikon berganti antara "swara.suka" dan "swara.batal"; dua-duanya
+                    // harus diterima, kalau tidak tombol berisi (batal suka) diam saja.
+                    if (action != null
+                            && (action.startsWith("swara.suka") || action.startsWith("swara.batal"))) {
                         kirim(AKSI_SUKA);
                     }
                 }
