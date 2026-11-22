@@ -15,6 +15,7 @@ pub mod ctl;
 pub mod bench;
 pub mod conductor;
 pub mod paths;
+pub mod offline;
 pub mod player;
 pub mod stream;
 pub mod theme;

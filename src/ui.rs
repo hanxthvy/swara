@@ -76,6 +76,7 @@ enum Icon {
     Sample,
     Upgrade,
     Logo,
+    Unduh,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -352,6 +353,7 @@ fn draw_icon(p: &egui::Painter, icon: Icon, r: Rect, c: Color32) {
                 );
             }
         }
+        Icon::Unduh => draw_ikon(p, Icon::Unduh, r, c, false),
     }
 }
 
@@ -359,6 +361,28 @@ fn draw_icon(p: &egui::Painter, icon: Icon, r: Rect, c: Color32) {
 /// penuh saat hidup; acak/ulangi memakai warna aksen plus titik kecil di bawah,
 /// supaya keadaan tombolnya kelihatan tanpa harus ditekan dulu.
 fn draw_ikon(p: &egui::Painter, icon: Icon, r: Rect, c: Color32, aktif: bool) {
+    if icon == Icon::Unduh {
+        // Panah ke bawah di atas rak: garis = belum disimpan, penuh = tersimpan.
+        let m = r.center();
+        let s = r.width().min(r.height());
+        let st = Stroke::new(s * 0.08, c);
+        p.line_segment([pos2(m.x, m.y - s * 0.36), pos2(m.x, m.y + s * 0.08)], st);
+        p.line_segment([pos2(m.x - s * 0.17, m.y - s * 0.06), pos2(m.x, m.y + s * 0.10)], st);
+        p.line_segment([pos2(m.x + s * 0.17, m.y - s * 0.06), pos2(m.x, m.y + s * 0.10)], st);
+        let y = m.y + s * 0.30;
+        if aktif {
+            p.rect_filled(
+                Rect::from_center_size(pos2(m.x, y), vec2(s * 0.64, s * 0.16)),
+                Rounding::same(s * 0.04),
+                c,
+            );
+        } else {
+            p.line_segment([pos2(m.x - s * 0.32, y - s * 0.05), pos2(m.x - s * 0.32, y + s * 0.07)], st);
+            p.line_segment([pos2(m.x + s * 0.32, y - s * 0.05), pos2(m.x + s * 0.32, y + s * 0.07)], st);
+            p.line_segment([pos2(m.x - s * 0.32, y + s * 0.07), pos2(m.x + s * 0.32, y + s * 0.07)], st);
+        }
+        return;
+    }
     match icon {
         Icon::Like | Icon::Dislike => {
             let m = r.center();
@@ -409,6 +433,11 @@ pub struct App {
     /// hati di kartu sistem tidak menampilkan "belum disukai" untuk lagu yang
     /// sudah pernah disukai sebelum aplikasi dibuka.
     rating_diminta: Option<String>,
+
+    /// Lagu yang sudah tersimpan untuk diputar tanpa jaringan.
+    unduh: std::collections::HashSet<String>,
+    /// Baris "Tersimpan offline" sudah ditempel ke beranda.
+    offline_sisip: bool,
 
     query: String,
     results: Vec<Track>,
@@ -510,6 +539,8 @@ impl App {
             lib: Vec::new(),
             logged: None,
             rating_diminta: None,
+            unduh: crate::offline::daftar().into_iter().collect(),
+            offline_sisip: false,
             query: String::new(),
             results: Vec::new(),
             suggest: Vec::new(),
@@ -615,6 +646,7 @@ impl App {
                     self.home_err = "beranda kosong, periksa koneksi".into();
                 }
                 self.home = rows;
+                self.sisip_offline();
             }
             Out::Search(q, t) => {
                 if q == self.query {
@@ -669,6 +701,15 @@ impl App {
                         drop(g);
                         crate::ctl::tulis(&self.suka);
                     }
+                }
+            }
+            Out::Terunduh(id, ok) => {
+                if ok {
+                    self.unduh.insert(id);
+                    self.sisip_offline();
+                    self.toast("tersimpan, bisa diputar tanpa jaringan");
+                } else {
+                    self.toast("gagal menyimpan lagu");
                 }
             }
             Out::Rated(id, like) => {
@@ -892,6 +933,28 @@ impl App {
         self.lyrics_id = t.id.clone();
         self.lyrics_diminta = Some(std::time::Instant::now());
         self.worker.send(Job::Lyrics(t));
+    }
+
+    /// Simpan lagu yang sedang main ke penyimpanan privat aplikasi, atau hapus
+    /// kalau sudah tersimpan. Berkasnya ikut hilang saat aplikasi di-uninstall.
+    fn unduh_lagu(&mut self) {
+        let Some(t) = self.current.clone() else {
+            self.toast("belum ada lagu");
+            return;
+        };
+        if self.unduh.contains(&t.id) {
+            match crate::offline::hapus(&t.id) {
+                Ok(()) => {
+                    self.unduh.remove(&t.id);
+                    self.sisip_offline();
+                    self.toast("dihapus dari simpanan");
+                }
+                Err(e) => self.toast(&format!("gagal hapus: {e}")),
+            }
+            return;
+        }
+        self.toast("menyimpan lagu…");
+        self.worker.send(crate::worker::Job::Unduh(t));
     }
 
     /// Nyatakan suka (+1) atau tidak suka (-1) untuk lagu yang sedang main.
@@ -1338,7 +1401,50 @@ impl App {
         }
     }
 
+    fn sisip_offline(&mut self) {
+        self.home.retain(|r| r.title != "Tersimpan offline");
+        let meta = crate::offline::meta();
+        if meta.is_empty() {
+            return;
+        }
+        let kartu = Card {
+            kind: "offline".into(),
+            id: "offline".into(),
+            title: "Tersimpan offline".into(),
+            sub: format!("{} lagu • di perangkat ini", meta.len()),
+            thumb: meta[0].sampul.clone(),
+        };
+        self.home.insert(
+            0,
+            Row {
+                title: "Tersimpan offline".into(),
+                items: vec![kartu],
+            },
+        );
+    }
+
     fn open_card(&mut self, card: &Card) {
+        if card.kind == "offline" {
+            // Daftar dari indeks lokal: tetap jalan walau jaringan mati.
+            let tracks: Vec<Track> = crate::offline::meta()
+                .iter()
+                .map(|m| m.track())
+                .collect();
+            if tracks.is_empty() {
+                self.toast("belum ada lagu tersimpan");
+                return;
+            }
+            self.koleksi = Some(Collection {
+                id: "offline".into(),
+                title: "Tersimpan offline".into(),
+                sub: format!("{} lagu di perangkat ini", tracks.len()),
+                thumb: tracks.first().map(|t| t.thumb.clone()).unwrap_or_default(),
+                tracks,
+            });
+            self.view = View::Collection;
+            self.tab = Tab::Koleksi;
+            return;
+        }
         if card.kind == "song" {
             let t = Track {
                 id: card.id.clone(),
@@ -2352,6 +2458,14 @@ impl App {
             }
             if self.chip_ikon(ui, Icon::Dislike, "Tidak", nilai == -1) {
                 self.nilai_lagu(-1);
+            }
+            let tersimpan = self
+                .current
+                .as_ref()
+                .map(|t| self.unduh.contains(&t.id))
+                .unwrap_or(false);
+            if self.chip_ikon(ui, Icon::Unduh, "Simpan", tersimpan) {
+                self.unduh_lagu();
             }
         });
         ui.add_space(10.0);
@@ -3546,9 +3660,10 @@ impl App {
                 // ---- pil aksi
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 8.0;
-                    let aksi: [(Icon, &str); 4] = [
+                    let aksi: [(Icon, &str); 5] = [
                         (Icon::Like, "Suka"),
                         (Icon::Dislike, "Tidak"),
+                        (Icon::Unduh, "Simpan"),
                         (Icon::Lyrics, "Lirik"),
                         (Icon::Queue, "Antrean"),
                     ];
@@ -3557,10 +3672,16 @@ impl App {
                         .as_ref()
                         .and_then(|t| self.rating.get(&t.id).copied())
                         .unwrap_or(0);
+                    let tersimpan = self
+                        .current
+                        .as_ref()
+                        .map(|t| self.unduh.contains(&t.id))
+                        .unwrap_or(false);
                     for (ikon, label) in aksi {
                         let nyala = match label {
                             "Suka" => nilai == 1,
                             "Tidak" => nilai == -1,
+                            "Simpan" => tersimpan,
                             "Lirik" => self.show_lyrics && !self.show_queue,
                             "Antrean" => self.show_queue && !self.show_lyrics,
                             _ => false,
@@ -3569,6 +3690,7 @@ impl App {
                             match label {
                                 "Suka" => self.nilai_lagu(1),
                                 "Tidak" => self.nilai_lagu(-1),
+                                "Simpan" => self.unduh_lagu(),
                                 "Lirik" => {
                                     let buka = !(self.show_lyrics && !self.show_queue);
                                     self.show_lyrics = buka;
@@ -3959,6 +4081,13 @@ impl eframe::App for App {
             }
         }
         self.sinkron_suka();
+        // Baris "Tersimpan offline" perlu ada sejak frame pertama: kalau jaringan
+        // mati, beranda tidak pernah datang dan tanpa baris ini lagu tersimpan
+        // tidak bisa dijangkau sama sekali.
+        if !self.offline_sisip {
+            self.offline_sisip = true;
+            self.sisip_offline();
+        }
         // Status suka lagu yang sedang diputar: tanya sekali per lagu. Tanpa ini
         // kartu sistem mengira lagu yang sudah pernah disukai masih kosong, jadi
         // ikonnya garis dan menekannya tidak mengubah apa pun.

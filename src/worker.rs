@@ -22,6 +22,8 @@ pub enum Job {
     Rate(String, bool),
     /// Tanya status suka lagu ini ke akun (LIKE/INDIFFERENT/DISLIKE).
     Rating(String),
+    /// Simpan lagu ke penyimpanan privat aplikasi untuk diputar tanpa jaringan.
+    Unduh(Track),
 }
 
 pub enum Out {
@@ -40,6 +42,8 @@ pub enum Out {
     Rated(String, bool),
     /// Jawaban status suka dari akun untuk satu lagu.
     Rating(String, bool),
+    /// Hasil simpan lagu offline: (id, berhasil).
+    Terunduh(String, bool),
     Failed(String),
 }
 
@@ -169,7 +173,37 @@ fn handle(api: &Api, job: Job) -> Result<Out> {
             eprintln!("[swara] status suka {id}: {}", if suka { "LIKE" } else { "bukan" });
             Out::Rating(id, suka)
         }
+        Job::Unduh(t) => {
+            let s = api.stream(&t.id)?;
+            let bytes = api.fetch_audio(&s.url)?;
+            crate::offline::simpan_lagu(&t, s.dur, &bytes)?;
+            eprintln!(
+                "[swara] tersimpan offline {} ({} KB)",
+                t.id,
+                bytes.len() / 1024
+            );
+            Out::Terunduh(t.id, true)
+        }
         Job::Load(t) => {
+            // Sudah tersimpan offline? Putar dari berkas, tanpa jaringan sama
+            // sekali — inilah gunanya fitur simpan.
+            if let Some(bytes) = crate::offline::baca(&t.id) {
+                let info = Stream {
+                    url: String::new(),
+                    itag: 0,
+                    mime: "audio/mp4".into(),
+                    kbps: 0,
+                    title: t.title.clone(),
+                    artist: t.artist.clone(),
+                    dur: t.secs,
+                    thumb: t.thumb.clone(),
+                };
+                let audio = crate::stream::Buf::new();
+                audio.push(&bytes);
+                audio.finish();
+                let art = api::thumb_or(&t.thumb).and_then(|u| api.fetch_image(&u).ok());
+                return Ok(Out::Loaded(t, info, audio, art));
+            }
             // Sudah disiapkan di latar? langsung main.
             if let Some((s, audio)) = api.take_ready(&t.id) {
                 let thumb = s.thumb.clone();
