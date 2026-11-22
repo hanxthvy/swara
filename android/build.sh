@@ -25,9 +25,11 @@ MODE=${1:-rilis}
 
 export PATH="/root/.cargo/bin:$PATH"
 export ANDROID_SDK_ROOT="$SDK" ANDROID_HOME="$SDK"
-# LTO tipis membuat libswara.so mati saat dibuka di Android (SIGSEGV di
-# ANativeActivity_onCreate). Di build Android LTO dimatikan.
-export CARGO_PROFILE_RELEASE_LTO="${CARGO_PROFILE_RELEASE_LTO:-false}"
+# LTO "thin" dulu membuat libswara.so mati saat dibuka (SIGSEGV di
+# ANativeActivity_onCreate). "fat" sudah diuji: aplikasi terbuka dan beranda
+# terisi di emulator x86_64 0.3.23, dan .so-nya menyusut ~19%. Nilai env masih
+# bisa menimpanya (mis. LTO=false saat memburu crash).
+export CARGO_PROFILE_RELEASE_LTO="${CARGO_PROFILE_RELEASE_LTO:-fat}"
 # javac dan d8 butuh JDK 17; pakai yang terpasang di mesin ini kalau belum diatur.
 export JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/openjdk17}"
 export PATH="$JAVA_HOME/bin:$PATH"

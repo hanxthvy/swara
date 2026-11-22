@@ -77,9 +77,15 @@ winit = { version = "0.30", default-features = false, features = [
 android-activity = { version = "0.6", features = ["native-activity"] }
 jni = "0.21"
 
+# Ukuran biner dipangkas 0.3.23: 19,3 MB -> 11,8 MB (fat LTO, satu unit kode,
+# panic=abort, opt-level="s"). Dekode AAC masih ~800x realtime di ukuran ini,
+# jadi tidak ada alasan memakai opt-level 2. Kalau UI terasa berat, naikkan
+# opt-level ke 2 dulu sebelum menyentuh yang lain (14,3 MB).
 [profile.release]
-opt-level = 2
-lto = "thin"
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
 strip = true
 
 [profile.dev]
