@@ -436,6 +436,8 @@ pub struct App {
 
     /// Lagu yang sudah tersimpan untuk diputar tanpa jaringan.
     unduh: std::collections::HashSet<String>,
+    /// Lagu yang sedang disimpan (belum selesai) — dipakai untuk keadaan tombol.
+    unduh_aktif: std::collections::HashSet<String>,
     /// Baris "Tersimpan offline" sudah ditempel ke beranda.
     offline_sisip: bool,
 
@@ -540,6 +542,7 @@ impl App {
             logged: None,
             rating_diminta: None,
             unduh: crate::offline::daftar().into_iter().collect(),
+            unduh_aktif: std::collections::HashSet::new(),
             offline_sisip: false,
             query: String::new(),
             results: Vec::new(),
@@ -704,6 +707,7 @@ impl App {
                 }
             }
             Out::Terunduh(id, ok) => {
+                self.unduh_aktif.remove(&id);
                 if ok {
                     self.unduh.insert(id);
                     self.sisip_offline();
@@ -935,6 +939,46 @@ impl App {
         self.worker.send(Job::Lyrics(t));
     }
 
+    /// Tombol back Android. Turun satu tingkat dulu, dan baru di akar aplikasi
+    /// dipindah ke latar — bukan `finish()`, karena Activity yang dihancurkan
+    /// membuat `dlclose` libswara.so menggantung.
+    fn tombol_back(&mut self) {
+        if self.expanded {
+            self.expanded = false;
+            return;
+        }
+        if self.show_lyrics || self.show_queue {
+            self.show_lyrics = false;
+            self.show_queue = false;
+            return;
+        }
+        if self.view == View::Collection {
+            self.view = View::Feed;
+            self.koleksi = None;
+            return;
+        }
+        if self.tab != Tab::Home {
+            self.goto(Tab::Home);
+            return;
+        }
+        #[cfg(target_os = "android")]
+        crate::android_bridge::ke_belakang();
+    }
+
+    /// Tiga keadaan tombol simpan: belum, sedang mengunduh, sudah tersimpan.
+    fn keadaan_simpan(&self) -> (&'static str, bool) {
+        let Some(t) = self.current.as_ref() else {
+            return ("Simpan", false);
+        };
+        if self.unduh_aktif.contains(&t.id) {
+            return ("Menyimpan", false);
+        }
+        if self.unduh.contains(&t.id) {
+            return ("Tersimpan", true);
+        }
+        ("Simpan", false)
+    }
+
     /// Simpan lagu yang sedang main ke penyimpanan privat aplikasi, atau hapus
     /// kalau sudah tersimpan. Berkasnya ikut hilang saat aplikasi di-uninstall.
     fn unduh_lagu(&mut self) {
@@ -953,7 +997,11 @@ impl App {
             }
             return;
         }
-        self.toast("menyimpan lagu…");
+        if !self.unduh_aktif.insert(t.id.clone()) {
+            self.toast("masih disimpan, tunggu sebentar");
+            return;
+        }
+        self.toast(format!("menyimpan “{}”…", short(&t.title, 28)));
         self.worker.send(crate::worker::Job::Unduh(t));
     }
 
@@ -1549,25 +1597,6 @@ impl App {
         let anim = ctx.animate_bool_with_time(egui::Id::new("np-expand"), self.expanded, 0.26);
         if anim > 0.001 {
             self.expanded_sheet(ctx, anim);
-        }
-
-        if let Some((msg, at)) = self.toast.clone() {
-            if at.elapsed() < Duration::from_secs(4) {
-                egui::Area::new("toast".into())
-                    .anchor(Align2::CENTER_BOTTOM, vec2(0.0, -110.0))
-                    .show(ctx, |ui| {
-                        egui::Frame::none()
-                            .fill(self.scheme.surface_highest)
-                            .rounding(Rounding::same(shape::ROW))
-                            .inner_margin(egui::Margin::symmetric(16.0, 10.0))
-                            .show(ui, |ui| {
-                                ui.label(ts::body(&msg, self.scheme.on_surface));
-                            });
-                    });
-                ctx.request_repaint_after(Duration::from_millis(350));
-            } else {
-                self.toast = None;
-            }
         }
     }
 
@@ -2446,7 +2475,9 @@ impl App {
         );
         // Baris aksi di bawah artis, seperti pemutar YouTube Music: suka dan
         // tidak suka berdiri sendiri, tidak lagi menumpang di baris kontrol.
-        ui.horizontal(|ui| {
+        // Wrapped supaya label simpan yang panjang ("Menyimpan…") tidak
+        // mendorong pil lain keluar layar.
+        ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
             let nilai = self
                 .current
@@ -2459,12 +2490,8 @@ impl App {
             if self.chip_ikon(ui, Icon::Dislike, "Tidak", nilai == -1) {
                 self.nilai_lagu(-1);
             }
-            let tersimpan = self
-                .current
-                .as_ref()
-                .map(|t| self.unduh.contains(&t.id))
-                .unwrap_or(false);
-            if self.chip_ikon(ui, Icon::Unduh, "Simpan", tersimpan) {
+            let (label_simpan, nyala_simpan) = self.keadaan_simpan();
+            if self.chip_ikon(ui, Icon::Unduh, label_simpan, nyala_simpan) {
                 self.unduh_lagu();
             }
         });
@@ -2486,13 +2513,16 @@ impl App {
         // sejajar, tidak bergantung pada cross-align layout egui.
         let (row, _) = ui.allocate_exact_size(vec2(w, 64.0), Sense::hover());
         let rmid = row.center().y;
-        let rcx = row.center().x;
-        let play = Rect::from_center_size(pos2(rcx, rmid), vec2(56.0, 56.0));
+        // Posisi memakai pecahan lebar baris, bukan selisih piksel tetap: di
+        // ponsel sempit shuffle/ulangi bisa terdorong keluar layar sehingga
+        // tombolnya "hilang" dan baris terlihat tidak seimbang.
+        let fx = |f: f32| row.left() + w * f;
+        let play = Rect::from_center_size(pos2(fx(0.5), rmid), vec2(56.0, 56.0));
         // Urutan tombol mengikuti YouTube Music: shuffle, prev, play, next, repeat.
-        let shuffle = Rect::from_center_size(pos2(rcx - 140.0, rmid), vec2(22.0, 22.0));
-        let prev = Rect::from_center_size(pos2(rcx - 84.0, rmid), vec2(26.0, 26.0));
-        let next = Rect::from_center_size(pos2(rcx + 84.0, rmid), vec2(26.0, 26.0));
-        let repeat = Rect::from_center_size(pos2(rcx + 140.0, rmid), vec2(22.0, 22.0));
+        let shuffle = Rect::from_center_size(pos2(fx(0.08), rmid), vec2(22.0, 22.0));
+        let prev = Rect::from_center_size(pos2(fx(0.29), rmid), vec2(26.0, 26.0));
+        let next = Rect::from_center_size(pos2(fx(0.71), rmid), vec2(26.0, 26.0));
+        let repeat = Rect::from_center_size(pos2(fx(0.92), rmid), vec2(22.0, 22.0));
 
         let ph = ui.interact(prev.expand(8.0), egui::Id::new("np-prev"), Sense::click());
         if ph.hovered() {
@@ -2544,7 +2574,9 @@ impl App {
                 ui.painter(),
                 ikon,
                 rect,
-                if nyala { s.primary } else { s.on_surface_variant },
+                // on_surface, bukan on_surface_variant: di layar ponsel yang
+                // gelap, ikon acak/ulangi versi redup terbaca seperti "tidak ada".
+                if nyala { s.primary } else { s.on_surface },
                 nyala,
             );
             if h.clicked() {
@@ -2947,6 +2979,21 @@ impl App {
 
         if self.view == View::Feed {
             ui.horizontal_wrapped(|ui| {
+                // Pintu masuk ke lagu yang disimpan untuk diputar tanpa jaringan.
+                let n_off = crate::offline::meta().len();
+                if self.chip(ui, &format!("Tersimpan offline ({n_off})"), false).clicked() {
+                    if n_off == 0 {
+                        self.toast("belum ada lagu tersimpan; tekan Simpan di pemutar");
+                    } else {
+                        self.open_card(&Card {
+                            kind: "offline".into(),
+                            id: "offline".into(),
+                            title: "Tersimpan offline".into(),
+                            sub: String::new(),
+                            thumb: String::new(),
+                        });
+                    }
+                }
                 if self.chip(ui, "Playlist saya", false).clicked() {
                     if self.logged.is_some() {
                         self.worker.send(Job::Library);
@@ -3093,23 +3140,8 @@ impl App {
                     }
                 }
                 ui.add_space(10.0);
-                let (b, br) = ui.allocate_exact_size(vec2(30.0, 30.0), Sense::click());
-                draw_icon(ui.painter(), Icon::Bell, b, s.on_surface);
-                ui.painter().circle_filled(
-                    pos2(b.right() - 2.0, b.top() + 5.0),
-                    6.0,
-                    Color32::from_rgb(198, 44, 44),
-                );
-                ui.painter().text(
-                    pos2(b.right() - 2.0, b.top() + 5.0),
-                    Align2::CENTER_CENTER,
-                    "1",
-                    FontId::proportional(8.0),
-                    Color32::WHITE,
-                );
-                if br.clicked() {
-                    self.toast("belum ada notifikasi baru");
-                }
+                // Lonceng notifikasi dihapus: di sini isinya cuma badge "1"
+                // pajangan yang menunya tidak pernah ada.
             });
         });
     }
@@ -3658,12 +3690,21 @@ impl App {
                 ui.add_space(12.0);
 
                 // ---- pil aksi
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 8.0;
+                // Bisa digeser ke samping: label "Menyimpan"/"Tersimpan" membuat
+                // baris lebih lebar dari layar ponsel, dan dulu pil terakhir
+                // sekadar terpotong tanpa cara menjangkaunya.
+                egui::ScrollArea::horizontal()
+                    .id_salt("pil-aksi-pon")
+                    .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+                    .drag_to_scroll(true)
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    let (label_simpan, nyala_simpan) = self.keadaan_simpan();
                     let aksi: [(Icon, &str); 5] = [
                         (Icon::Like, "Suka"),
                         (Icon::Dislike, "Tidak"),
-                        (Icon::Unduh, "Simpan"),
+                        (Icon::Unduh, label_simpan),
                         (Icon::Lyrics, "Lirik"),
                         (Icon::Queue, "Antrean"),
                     ];
@@ -3672,31 +3713,26 @@ impl App {
                         .as_ref()
                         .and_then(|t| self.rating.get(&t.id).copied())
                         .unwrap_or(0);
-                    let tersimpan = self
-                        .current
-                        .as_ref()
-                        .map(|t| self.unduh.contains(&t.id))
-                        .unwrap_or(false);
                     for (ikon, label) in aksi {
-                        let nyala = match label {
-                            "Suka" => nilai == 1,
-                            "Tidak" => nilai == -1,
-                            "Simpan" => tersimpan,
-                            "Lirik" => self.show_lyrics && !self.show_queue,
-                            "Antrean" => self.show_queue && !self.show_lyrics,
+                        let nyala = match ikon {
+                            Icon::Like => nilai == 1,
+                            Icon::Dislike => nilai == -1,
+                            Icon::Unduh => nyala_simpan,
+                            Icon::Lyrics => self.show_lyrics && !self.show_queue,
+                            Icon::Queue => self.show_queue && !self.show_lyrics,
                             _ => false,
                         };
                         if self.chip_ikon(ui, ikon, label, nyala) {
-                            match label {
-                                "Suka" => self.nilai_lagu(1),
-                                "Tidak" => self.nilai_lagu(-1),
-                                "Simpan" => self.unduh_lagu(),
-                                "Lirik" => {
+                            match ikon {
+                                Icon::Like => self.nilai_lagu(1),
+                                Icon::Dislike => self.nilai_lagu(-1),
+                                Icon::Unduh => self.unduh_lagu(),
+                                Icon::Lyrics => {
                                     let buka = !(self.show_lyrics && !self.show_queue);
                                     self.show_lyrics = buka;
                                     self.show_queue = false;
                                 }
-                                "Antrean" => {
+                                Icon::Queue => {
                                     let buka = !(self.show_queue && !self.show_lyrics);
                                     self.show_queue = buka;
                                     self.show_lyrics = false;
@@ -3705,7 +3741,8 @@ impl App {
                             }
                         }
                     }
-                });
+                        });
+                    });
                 ui.add_space(10.0);
 
                 // ---- panel lirik / antrean
@@ -3776,13 +3813,11 @@ impl App {
                             Sense::click(),
                         );
                         let nyala = (i == 0 && self.shuffle_on) || (i == 4 && self.ulangi > 0);
-                        let warna = if nyala {
-                            s.primary
-                        } else if i == 0 || i == 4 {
-                            s.on_surface_variant
-                        } else {
-                            s.on_surface
-                        };
+                        // Acak/ulangi memakai on_surface: versi redup
+                        // (on_surface_variant) di layar gelap terbaca seperti
+                        // tombolnya tidak ada, dan baris kontrol jadi terlihat
+                        // miring karena dua ikon ujungnya hilang.
+                        let warna = if nyala { s.primary } else { s.on_surface };
                         draw_ikon(
                             ui.painter(),
                             ikon,
@@ -4116,6 +4151,7 @@ impl eframe::App for App {
                         }
                     }
                     ja::AKSI_SUKA => self.nilai_lagu(1),
+                    ja::AKSI_BACK => self.tombol_back(),
                     ja::AKSI_NEXT => self.next_track(1),
                     ja::AKSI_PREV => self.next_track(-1),
                     _ => {}
@@ -4325,6 +4361,42 @@ impl eframe::App for App {
         } else {
             self.ui(ctx);
         }
+        // Toast digambar di luar cabang tata letak: dulu cuma ada di jalur
+        // desktop, jadi di ponsel pesan seperti "tersimpan" tidak pernah tampil.
+        self.gambar_toast(ctx);
+    }
+}
+
+impl App {
+    /// Pesan singkat di bawah layar, 4 detik.
+    fn gambar_toast(&mut self, ctx: &egui::Context) {
+        let Some((msg, at)) = self.toast.clone() else {
+            return;
+        };
+        if at.elapsed() >= Duration::from_secs(4) {
+            self.toast = None;
+            return;
+        }
+        // Lebar dibatasi dulu, baru teksnya diminta tidak membungkus: Area tanpa
+        // batas lebar membuat egui memilih kolom sempit dan pesan satu baris
+        // pecah jadi bertumpuk ke atas.
+        let lebar = (ctx.screen_rect().width() * 0.8).clamp(160.0, 460.0);
+        egui::Area::new("toast".into())
+            .anchor(Align2::CENTER_BOTTOM, vec2(0.0, -110.0))
+            .show(ctx, |ui| {
+                ui.set_max_width(lebar);
+                egui::Frame::none()
+                    .fill(self.scheme.surface_highest)
+                    .rounding(Rounding::same(shape::ROW))
+                    .inner_margin(egui::Margin::symmetric(16.0, 10.0))
+                    .show(ui, |ui| {
+                        ui.add(
+                            egui::Label::new(ts::body(&msg, self.scheme.on_surface))
+                                .wrap_mode(egui::TextWrapMode::Wrap),
+                        );
+                    });
+            });
+        ctx.request_repaint_after(Duration::from_millis(350));
     }
 }
 

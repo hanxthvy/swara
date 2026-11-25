@@ -32,6 +32,7 @@ public class Player {
     public static final int AKSI_PAUSE = 3;
     public static final int AKSI_PLAY = 4;
     public static final int AKSI_SUKA = 5;
+    public static final int AKSI_BACK = 6;
 
     private static final String KANAL = "swara_putar";
     private static final int ID = 1001;
@@ -57,6 +58,11 @@ public class Player {
         // terdaftar untuk classloader aplikasi dan setiap tombol notifikasi
         // berakhir UnsatisfiedLinkError (aplikasi langsung mati).
         System.loadLibrary("swara");
+    }
+
+    /** Dipanggil Activity saat tombol back ditekan. */
+    public static void dariBelakang() {
+        kirim(AKSI_BACK);
     }
 
     /** Dipanggil Rust di setiap perubahan lagu/keadaan putar. */
@@ -314,6 +320,18 @@ public class Player {
     }
 
     /** Geser posisi dari kartu sistem / layar kunci. */
+    /** Tombol back di akar aplikasi: bawa ke latar, jangan hancurkan Activity.
+     *  onDestroy memanggil dlclose libswara.so dan itu bisa menggantung. */
+    public static void keBelakang(Context c) {
+        try {
+            if (c instanceof Activity) {
+                ((Activity) c).moveTaskToBack(true);
+            }
+        } catch (Throwable t) {
+            // abaikan: tidak ada yang bisa dilakukan kalau Activity sudah hilang
+        }
+    }
+
     private static void kendaliSeek(long ms) {
         try {
             kendaliSeekNative(ms);

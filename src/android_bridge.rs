@@ -25,6 +25,8 @@ pub const AKSI_PREV: i32 = 2;
 pub const AKSI_PAUSE: i32 = 3;
 pub const AKSI_PLAY: i32 = 4;
 pub const AKSI_SUKA: i32 = 5;
+/// Tombol back dari Activity (`Ui.onBackPressed`).
+pub const AKSI_BACK: i32 = 6;
 
 /// Pegangan pemutar untuk tombol dari kartu bawaan Android. Dipakai saat
 /// jendela sedang tidak menggambar (aplikasi di latar, layar mati): egui tidak
@@ -443,6 +445,25 @@ pub extern "system" fn Java_com_hanxthvy_swara_Player_kendaliSeekNative(
     std::thread::spawn(|| {
         std::thread::sleep(std::time::Duration::from_millis(400));
         segarkan_kartu(None);
+    });
+}
+
+/// Bawa aplikasi ke latar lewat `Activity.moveTaskToBack`. Dipakai tombol back
+/// saat sudah di akar: `finish()` akan menghancurkan Activity, dan
+/// `onDestroy` → `dlclose` libswara.so bisa menggantung.
+pub fn ke_belakang() {
+    eprintln!("[swara] tombol back: pindah ke latar");
+    dengan_env(|e| {
+        let Some(akt) = AKTIVITAS.get() else { return };
+        let Some(k) = kelas(e, "com.hanxthvy.swara.Player") else {
+            return;
+        };
+        let _ = e.call_static_method(
+            &k,
+            "keBelakang",
+            "(Landroid/content/Context;)V",
+            &[JValue::Object(akt.as_obj())],
+        );
     });
 }
 
