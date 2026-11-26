@@ -958,6 +958,28 @@ impl Api {
         Ok(bytes)
     }
 
+    /// Audio sebagai aliran byte, untuk unduhan yang perlu progres. Pemanggil
+    /// membaca per potong dan tahu panjang isinya (`total`), jadi bilah kemajuan
+    /// bisa bergerak — bukan menunggu satu file utuh lalu melompat ke 100%.
+    pub fn audio_aliran(
+        &self,
+        url: &str,
+    ) -> Result<(Box<dyn std::io::Read + Send>, Option<u64>)> {
+        let resp = self
+            .client
+            .get(url)
+            .header("User-Agent", UA_VIS)
+            .header("Range", "bytes=0-")
+            .header("Accept-Encoding", "identity")
+            .timeout(Duration::from_secs(300))
+            .send()?;
+        if !resp.status().is_success() && resp.status().as_u16() != 206 {
+            return Err(anyhow!("stream http {}", resp.status()));
+        }
+        let total = resp.content_length();
+        Ok((Box::new(resp), total))
+    }
+
     /// Audio yang mengalir: unduhan jalan di latar, dekoder membaca sambil
     /// menunggu. Bunyi mulai setelah beberapa ratus KB, bukan setelah file utuh.
     pub fn fetch_audio_stream(&self, url: &str, tag: &str) -> Arc<crate::stream::Buf> {
@@ -967,6 +989,11 @@ impl Api {
     pub fn fetch_image(&self, url: &str) -> Result<Vec<u8>> {
         if url.is_empty() {
             return Err(anyhow!("url kosong"));
+        }
+        // Sampul lagu tersimpan: berkasnya ada di data aplikasi, jangan pernah
+        // menyentuh jaringan (lagu offline harus tetap bergambar tanpa sinyal).
+        if let Some(id) = url.strip_prefix(crate::offline::AWALAN_LOKAL) {
+            return crate::offline::baca_sampul(id).ok_or_else(|| anyhow!("sampul lokal hilang"));
         }
         let resp = self.client.get(url).send()?;
         Ok(resp.bytes()?.to_vec())

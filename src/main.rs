@@ -18,6 +18,43 @@ fn main() -> anyhow::Result<()> {
             .unwrap_or_else(|| "tulus monokrom".into());
         return probe(&q);
     }
+    if let Some(i) = args.iter().position(|a| a == "--uji-unduh") {
+        // Uji jalur unduhan offline: aliran + progres + sampul, tanpa GUI.
+        let q = args[i + 1..].join(" ");
+        let api = Api::new();
+        let t = api.search(&q, 1)?.into_iter().next().ok_or_else(|| anyhow::anyhow!("tidak ketemu"))?;
+        let id = t.id.clone();
+        let s = api.stream(&id)?;
+        let (mut aliran, total) = api.audio_aliran(&s.url)?;
+        let total = total.unwrap_or(0);
+        let sampul = swara::api::thumb_or(&t.thumb).and_then(|u| api.fetch_image(&u).ok());
+        println!("sampul: {} byte", sampul.as_ref().map(|b| b.len()).unwrap_or(0));
+        let mut laporan = 0u32;
+        let n = swara::offline::simpan_aliran(
+            &t,
+            s.dur,
+            total,
+            &mut *aliran,
+            sampul.as_deref(),
+            |f| {
+                let p = (f * 10.0) as u32;
+                if p > laporan {
+                    laporan = p;
+                    println!("progres {}%", p * 10);
+                }
+            },
+        )?;
+        println!("tersimpan {} byte (total dilapor {})", n, total);
+        println!("sampul berkas: {}", swara::offline::sampul_berkas(&id).display());
+        println!(
+            "sampul ada: {}",
+            swara::offline::baca_sampul(&id).map(|b| b.len()).unwrap_or(0)
+        );
+        for m in swara::offline::meta() {
+            println!("meta {} | {} | {}", m.id, m.judul, m.sampul);
+        }
+        return Ok(());
+    }
     if args.iter().any(|a| a == "--login") {
         let api = Api::new();
         match api.login() {

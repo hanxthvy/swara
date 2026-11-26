@@ -175,12 +175,26 @@ fn handle(api: &Api, job: Job) -> Result<Out> {
         }
         Job::Unduh(t) => {
             let s = api.stream(&t.id)?;
-            let bytes = api.fetch_audio(&s.url)?;
-            crate::offline::simpan_lagu(&t, s.dur, &bytes)?;
+            let (mut aliran, total) = api.audio_aliran(&s.url)?;
+            let total = total.unwrap_or(0);
+            // Sampul diambil lebih dulu: sekali jalan, dan kalau gagal lagunya
+            // tetap tersimpan (hanya tanpa gambar).
+            let sampul = api::thumb_or(&t.thumb).and_then(|u| api.fetch_image(&u).ok());
+            let id = t.id.clone();
+            let hasil = crate::offline::simpan_aliran(
+                &t,
+                s.dur,
+                total,
+                &mut *aliran,
+                sampul.as_deref(),
+                |f| crate::offline::set_progres(&id, f),
+            );
+            crate::offline::hapus_progres(&t.id);
+            let panjang = hasil?;
             eprintln!(
                 "[swara] tersimpan offline {} ({} KB)",
                 t.id,
-                bytes.len() / 1024
+                panjang / 1024
             );
             Out::Terunduh(t.id, true)
         }

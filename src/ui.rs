@@ -77,6 +77,7 @@ enum Icon {
     Upgrade,
     Logo,
     Unduh,
+    Refresh,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -354,6 +355,7 @@ fn draw_icon(p: &egui::Painter, icon: Icon, r: Rect, c: Color32) {
             }
         }
         Icon::Unduh => draw_ikon(p, Icon::Unduh, r, c, false),
+        Icon::Refresh => draw_ikon(p, Icon::Refresh, r, c, false),
     }
 }
 
@@ -383,7 +385,36 @@ fn draw_ikon(p: &egui::Painter, icon: Icon, r: Rect, c: Color32, aktif: bool) {
         }
         return;
     }
+    if icon == Icon::Refresh {
+        // Busur hampir penuh plus kepala panah: "minta ulang", bukan panah balik.
+        let m = r.center();
+        let s = r.width().min(r.height());
+        let rr = s * 0.32;
+        let (a0, sapu) = (-0.5f32, std::f32::consts::TAU * 0.80);
+        let mut pts = Vec::new();
+        for i in 0..=28 {
+            let a = a0 + sapu * (i as f32 / 28.0);
+            pts.push(pos2(m.x + a.cos() * rr, m.y + a.sin() * rr));
+        }
+        p.add(egui::Shape::line(pts, Stroke::new(s * 0.09, c)));
+        let a = a0 + sapu;
+        let ujung = pos2(m.x + a.cos() * rr, m.y + a.sin() * rr);
+        let t = vec2(-a.sin(), a.cos());
+        let n = vec2(a.cos(), a.sin());
+        let w = s * 0.11;
+        p.add(egui::Shape::convex_polygon(
+            vec![
+                ujung + n * w,
+                ujung - n * w,
+                ujung + t * (w * 2.6) - n * (w * 0.2),
+            ],
+            c,
+            Stroke::NONE,
+        ));
+        return;
+    }
     match icon {
+        Icon::Refresh => {}
         Icon::Like | Icon::Dislike => {
             let m = r.center();
             let s = r.width().min(r.height());
@@ -965,18 +996,29 @@ impl App {
         crate::android_bridge::ke_belakang();
     }
 
+    /// Minta ulang beranda dari YouTube Music. Dulu tidak ada jalan sama sekali
+    /// untuk menyegarkan beranda selain menutup aplikasi.
+    fn muat_beranda(&mut self) {
+        self.home_err.clear();
+        self.worker.send(Job::Home);
+        self.toast("menyegarkan beranda");
+    }
+
     /// Tiga keadaan tombol simpan: belum, sedang mengunduh, sudah tersimpan.
-    fn keadaan_simpan(&self) -> (&'static str, bool) {
+    fn keadaan_simpan(&self) -> (String, bool) {
         let Some(t) = self.current.as_ref() else {
-            return ("Simpan", false);
+            return ("Simpan".to_string(), false);
         };
         if self.unduh_aktif.contains(&t.id) {
-            return ("Menyimpan", false);
+            // Persen, bukan titik-titik: unduhan lagu bisa beberapa detik, dan
+            // tanpa angka tombolnya terlihat diam.
+            let p = crate::offline::progres(&t.id).unwrap_or(0.0);
+            return (format!("Menyimpan {}%", (p * 100.0) as i32), false);
         }
         if self.unduh.contains(&t.id) {
-            return ("Tersimpan", true);
+            return ("Tersimpan".to_string(), true);
         }
-        ("Simpan", false)
+        ("Simpan".to_string(), false)
     }
 
     /// Simpan lagu yang sedang main ke penyimpanan privat aplikasi, atau hapus
@@ -2491,7 +2533,7 @@ impl App {
                 self.nilai_lagu(-1);
             }
             let (label_simpan, nyala_simpan) = self.keadaan_simpan();
-            if self.chip_ikon(ui, Icon::Unduh, label_simpan, nyala_simpan) {
+            if self.chip_ikon(ui, Icon::Unduh, &label_simpan, nyala_simpan) {
                 self.unduh_lagu();
             }
         });
@@ -3140,8 +3182,11 @@ impl App {
                     }
                 }
                 ui.add_space(10.0);
-                // Lonceng notifikasi dihapus: di sini isinya cuma badge "1"
-                // pajangan yang menunya tidak pernah ada.
+                // Segarkan beranda. Lonceng notifikasi yang dulu di sini sudah
+                // dihapus: isinya cuma badge "1" pajangan tanpa menu.
+                if self.icon_button(ui, Icon::Refresh, 26.0, Btn::Ghost).clicked() {
+                    self.muat_beranda();
+                }
             });
         });
     }
@@ -3578,6 +3623,17 @@ impl App {
             self.show_suggest = true;
             self.cari_at = Some(Instant::now());
         }
+        // Saran pencarian: jalur desktop memintanya di `fn ui()`, yang di ponsel
+        // tidak pernah dipanggil — jadi di Android daftar saran tidak pernah
+        // muncul. Permintaannya dibuat di sini, dengan jeda 240 ms seperti desktop.
+        if let Some(at) = self.suggest_at {
+            if at.elapsed() > Duration::from_millis(240) && !self.query.is_empty() {
+                self.worker.send(Job::Suggest(self.query.clone()));
+                self.suggest_at = None;
+            } else {
+                ui.ctx().request_repaint_after(Duration::from_millis(120));
+            }
+        }
         let tekan_enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
         if tekan_enter && (resp.has_focus() || resp.lost_focus()) {
             submit = true;
@@ -3587,8 +3643,12 @@ impl App {
         // Saran dibiarkan tampil lebih dulu — dulu pencarian langsung jalan
         // setelah 800 ms sehingga daftar saran cuma berkelebat.
         if let Some(at) = self.cari_at {
-            let tunggu = if self.show_suggest && !self.suggest.is_empty() {
-                Duration::from_millis(2600)
+            // Selama daftar saran masih ditampilkan, tahan pencarian otomatis
+            // lebih lama: dengan 900 ms, jawaban saran dari jaringan sering
+            // datang setelah pencarian sudah jalan, jadi daftarnya cuma
+            // berkelebat (atau tidak sempat terlihat sama sekali).
+            let tunggu = if self.show_suggest {
+                Duration::from_millis(3200)
             } else {
                 Duration::from_millis(900)
             };
@@ -3701,6 +3761,7 @@ impl App {
                         ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 6.0;
                     let (label_simpan, nyala_simpan) = self.keadaan_simpan();
+                    let label_simpan = label_simpan.as_str();
                     let aksi: [(Icon, &str); 5] = [
                         (Icon::Like, "Suka"),
                         (Icon::Dislike, "Tidak"),
@@ -3743,6 +3804,22 @@ impl App {
                     }
                         });
                     });
+                // ---- kemajuan unduhan: unduhan lagu berjalan beberapa detik,
+                // tanpa bilah ini tombol simpan terlihat diam.
+                if let Some(p) = self
+                    .current
+                    .as_ref()
+                    .and_then(|t| crate::offline::progres(&t.id))
+                {
+                    ui.add_space(6.0);
+                    let (r, _) =
+                        ui.allocate_exact_size(vec2(ui.available_width(), 3.0), Sense::hover());
+                    ui.painter()
+                        .rect_filled(r, Rounding::same(2.0), s.on_surface.gamma_multiply(0.12));
+                    let mut isi = r;
+                    isi.set_width(r.width() * p.clamp(0.0, 1.0));
+                    ui.painter().rect_filled(isi, Rounding::same(2.0), s.primary);
+                }
                 ui.add_space(10.0);
 
                 // ---- panel lirik / antrean
@@ -4091,6 +4168,11 @@ impl eframe::App for App {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Unduhan berjalan di thread pekerja dan kemajuannya dibaca dari peta
+        // bersama, jadi bingkai harus diminta sendiri selama masih ada unduhan.
+        if !self.unduh_aktif.is_empty() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(200));
+        }
         // Beberapa frame pertama ukuran inset belum benar (pernah terbaca dua
         // kali lipat tinggi bilah status). Ambil nilai terkecil selama 40
         // frame pertama, lalu berhenti membaca.

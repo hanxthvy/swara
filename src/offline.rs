@@ -117,20 +117,150 @@ pub fn hapus(id: &str) -> anyhow::Result<()> {
     if p.is_file() {
         std::fs::remove_file(p)?;
     }
+    let s = sampul_berkas(id);
+    if s.is_file() {
+        let _ = std::fs::remove_file(s);
+    }
     lupakan(id);
     Ok(())
 }
 
-/// Simpan audio + keterangannya sekaligus. `detik` diambil dari info stream
-/// (bukan dari teks durasi di kartu) karena itulah durasi yang dipakai pemutar.
-pub fn simpan_lagu(t: &crate::api::Track, detik: f64, bytes: &[u8]) -> anyhow::Result<()> {
-    simpan(&t.id, bytes)?;
+// ------------------------------------------------------------ progres unduh
+
+use std::collections::HashMap;
+use std::sync::Mutex;
+
+/// Kemajuan unduhan per id lagu, 0..1. Ditulis dari thread pekerja dan dibaca
+/// tiap bingkai oleh antarmuka, jadi cukup satu peta bersama — tidak perlu
+/// pesan tambahan di saluran `Out`.
+static PROGRES: Mutex<Option<HashMap<String, f32>>> = Mutex::new(None);
+
+fn kunci() -> std::sync::MutexGuard<'static, Option<HashMap<String, f32>>> {
+    PROGRES.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+pub fn set_progres(id: &str, f: f32) {
+    let mut g = kunci();
+    g.get_or_insert_with(HashMap::new)
+        .insert(id.to_string(), f.clamp(0.0, 1.0));
+}
+
+pub fn progres(id: &str) -> Option<f32> {
+    kunci().as_ref().and_then(|m| m.get(id).copied())
+}
+
+pub fn hapus_progres(id: &str) {
+    if let Some(m) = kunci().as_mut() {
+        m.remove(id);
+    }
+}
+
+// ------------------------------------------------------------ sampul
+
+pub fn sampul_berkas(id: &str) -> PathBuf {
+    dir().join(format!("{}.jpg", aman(id)))
+}
+
+/// Sampul ikut disimpan: tanpa ini daftar lagu offline tampil sebagai kotak
+/// kosong, dan saat diputar tanpa jaringan tidak ada gambar sama sekali.
+pub fn simpan_sampul(id: &str, bytes: &[u8]) -> bool {
+    if bytes.is_empty() {
+        return false;
+    }
+    if std::fs::create_dir_all(dir()).is_err() {
+        return false;
+    }
+    std::fs::write(sampul_berkas(id), bytes).is_ok()
+}
+
+pub fn baca_sampul(id: &str) -> Option<Vec<u8>> {
+    std::fs::read(sampul_berkas(id)).ok()
+}
+
+/// Awalan `thumb` untuk sampul lokal: `lokal:<id>`. Antarmuka memakainya untuk
+/// membedakan berkas di data aplikasi dari URL jaringan.
+pub const AWALAN_LOKAL: &str = "lokal:";
+
+/// Unduh aliran ke berkas sementara sambil melaporkan kemajuan, lalu ganti nama
+/// dan catat metadatanya. `total` 0 berarti server tidak memberi panjang isi;
+/// progresnya lalu hanya bisa ditaksir dari jumlah byte.
+pub fn simpan_aliran(
+    t: &crate::api::Track,
+    detik: f64,
+    total: u64,
+    rd: &mut dyn std::io::Read,
+    sampul: Option<&[u8]>,
+    mut lapor: impl FnMut(f32),
+) -> anyhow::Result<u64> {
+    use std::io::Write;
+    let d = dir();
+    std::fs::create_dir_all(&d)?;
+    let tmp = d.join(format!("{}.part", aman(&t.id)));
+    let mut berkas_tulis = std::io::BufWriter::new(std::fs::File::create(&tmp)?);
+    let mut buf = vec![0u8; 64 * 1024];
+    let mut sudah: u64 = 0;
+    loop {
+        let n = match rd.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(e) => {
+                let _ = std::fs::remove_file(&tmp);
+                return Err(e.into());
+            }
+        };
+        if let Err(e) = berkas_tulis.write_all(&buf[..n]) {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(e.into());
+        }
+        sudah += n as u64;
+        if total > 0 {
+            lapor((sudah as f32 / total as f32).min(0.999));
+        }
+    }
+    berkas_tulis.flush()?;
+    drop(berkas_tulis);
+    if sudah == 0 {
+        let _ = std::fs::remove_file(&tmp);
+        anyhow::bail!("aliran kosong");
+    }
+    std::fs::rename(&tmp, berkas(&t.id))?;
+    let mut url = t.thumb.clone();
+    if let Some(b) = sampul {
+        if simpan_sampul(&t.id, b) {
+            url = format!("{AWALAN_LOKAL}{}", t.id);
+        }
+    }
     catat(Simpanan {
         id: t.id.clone(),
         judul: t.title.clone(),
         artis: t.artist.clone(),
         detik: if detik > 0.0 { detik } else { t.secs },
-        sampul: t.thumb.clone(),
+        sampul: url,
+    });
+    Ok(sudah)
+}
+
+/// Simpan audio + keterangannya sekaligus. `detik` diambil dari info stream
+/// (bukan dari teks durasi di kartu) karena itulah durasi yang dipakai pemutar.
+pub fn simpan_lagu(
+    t: &crate::api::Track,
+    detik: f64,
+    bytes: &[u8],
+    sampul: Option<&[u8]>,
+) -> anyhow::Result<()> {
+    simpan(&t.id, bytes)?;
+    let mut url = t.thumb.clone();
+    if let Some(b) = sampul {
+        if simpan_sampul(&t.id, b) {
+            url = format!("{AWALAN_LOKAL}{}", t.id);
+        }
+    }
+    catat(Simpanan {
+        id: t.id.clone(),
+        judul: t.title.clone(),
+        artis: t.artist.clone(),
+        detik: if detik > 0.0 { detik } else { t.secs },
+        sampul: url,
     });
     Ok(())
 }
